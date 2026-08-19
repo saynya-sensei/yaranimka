@@ -144,13 +144,18 @@ def _fetch(path: str, params: dict, client: httpx.Client | None) -> list:
     raise ShikimoriError(f"Shikimori недоступен: {last}")
 
 
-def fetch_calendar(client: httpx.Client | None = None) -> list[Episode]:
+def flag(adult: bool) -> str:
+    """Значение параметра censored: он про «прятать», а не «показывать»."""
+    return "false" if adult else "true"
+
+
+def fetch_calendar(client: httpx.Client | None = None, *, adult: bool = False) -> list[Episode]:
     """Календарь ближайших серий: по одной ближайшей на каждый онгоинг.
 
     Именно так устроен эндпоинт — вторую и третью серию вперёд он не отдаёт,
     поэтому недельная сводка показывает только по одному эпизоду на тайтл.
     """
-    data = _fetch("/api/calendar", {"censored": "true"}, client)
+    data = _fetch("/api/calendar", {"censored": flag(adult)}, client)
     episodes = [ep for ep in (_parse(item) for item in data) if ep]
     episodes.sort(key=lambda ep: (ep.at, ep.title))
     return episodes
@@ -261,7 +266,8 @@ class SeasonTitle:
                    date.fromisoformat(starts) if starts else None)
 
 
-def fetch_season(code: str, limit: int = 5, client: httpx.Client | None = None) -> list[SeasonTitle]:
+def fetch_season(code: str, limit: int = 5, client: httpx.Client | None = None,
+                 *, adult: bool = False) -> list[SeasonTitle]:
     """Самые ожидаемые тайтлы сезона.
 
     Сортировка только по популярности: у ещё не вышедших тайтлов оценка нулевая,
@@ -273,7 +279,7 @@ def fetch_season(code: str, limit: int = 5, client: httpx.Client | None = None) 
 
     data = _fetch(
         "/api/animes",
-        {"season": code, "order": "popularity", "limit": max(1, min(limit, 20)), "censored": "true"},
+        {"season": code, "order": "popularity", "limit": max(1, min(limit, 20)), "censored": flag(adult)},
         client,
     )
 
@@ -301,10 +307,16 @@ def on_day(episodes: list[Episode], day: date, tz: timezone, *, min_score: float
     return [ep for ep in episodes if ep.local_date(tz) == day and ep.score >= min_score]
 
 
-def search(query: str, limit: int = 5, client: httpx.Client | None = None) -> list[dict]:
-    """Поиск аниме по названию — для команды в беседе."""
+def search(query: str, limit: int = 5, client: httpx.Client | None = None,
+           *, adult: bool = True) -> list[dict]:
+    """Поиск аниме по названию — для команды в беседе.
+
+    Взрослое по умолчанию показываем: человек спросил про конкретный тайтл,
+    и молча отдать ему урезанный список — значит соврать. В отличие от
+    дайджеста, который прилетает всей беседе без спроса.
+    """
     return _fetch(
         "/api/animes",
-        {"search": query, "limit": max(1, min(limit, 10)), "censored": "true"},
+        {"search": query, "limit": max(1, min(limit, 10)), "censored": flag(adult)},
         client,
     )

@@ -58,7 +58,7 @@ class Bot:
     # --- расписание ---
 
     def _calendar(self) -> list[Episode]:
-        return fetch_calendar(self._web)
+        return fetch_calendar(self._web, adult=self._cfg.adult)
 
     def now(self) -> datetime:
         return datetime.now(self._cfg.tz)
@@ -117,7 +117,8 @@ class Bot:
         if (day - season_start(day)).days < OPENING_DAYS:
             code, name, year = season_of(day)
             try:
-                return render.season_opening(fetch_season(code, cfg.season_top, self._web), name, year)
+                titles = fetch_season(code, cfg.season_top, self._web, adult=cfg.adult)
+                return render.season_opening(titles, name, year)
             except ShikimoriError as exc:
                 log.warning("Сезонная подборка не пришла: %s", exc)
         return ""
@@ -153,7 +154,8 @@ class Bot:
             if command == "search":
                 if not argument:
                     return "Что искать? Например: аниме врата стейнса"
-                return render.search_results(argument, search(argument, client=self._web))
+                return render.search_results(
+                    argument, search(argument, client=self._web, adult=cfg.adult_search))
         except ShikimoriError as exc:
             log.warning("Shikimori не ответил: %s", exc)
             return BROKEN

@@ -199,6 +199,7 @@ class FakeClient:
     def get(self, url, params=None, headers=None):
         self.calls += 1
         self.hosts.append(url.split("/api/")[0])
+        self.params = dict(params or {})
         step = self.script.pop(0)
         if isinstance(step, Exception):
             raise step
@@ -272,3 +273,38 @@ class TestGreeting:
     def test_digest_greets_by_hour(self):
         text = render.daily_digest([episode(15)], date(2026, 8, 19), TZ, hour=20)
         assert text.startswith("Добрый вечер, любимые накамычи! 🌸")
+
+
+class TestAdultFilter:
+    """Параметр censored у Shikimori: он про «прятать», а не «показывать»."""
+
+    def test_flag_is_inverted(self):
+        assert shikimori.flag(adult=True) == "false"
+        assert shikimori.flag(adult=False) == "true"
+
+    def test_search_shows_adult_by_default(self):
+        # Человек спросил конкретный тайтл — урезать выдачу молча неправильно.
+        client = FakeClient(FakeResponse(200, []))
+        shikimori.search("кайт", client=client)
+        assert client.params["censored"] == "false"
+
+    def test_search_can_be_filtered(self):
+        client = FakeClient(FakeResponse(200, []))
+        shikimori.search("кайт", client=client, adult=False)
+        assert client.params["censored"] == "true"
+
+    def test_calendar_hides_adult_by_default(self):
+        # Дайджест прилетает всей беседе без спроса.
+        client = FakeClient(FakeResponse(200, []))
+        shikimori.fetch_calendar(client)
+        assert client.params["censored"] == "true"
+
+    def test_calendar_can_show_adult(self):
+        client = FakeClient(FakeResponse(200, []))
+        shikimori.fetch_calendar(client, adult=True)
+        assert client.params["censored"] == "false"
+
+    def test_season_follows_the_digest(self):
+        client = FakeClient(FakeResponse(200, []))
+        shikimori.fetch_season("fall_2026", client=client)
+        assert client.params["censored"] == "true"
