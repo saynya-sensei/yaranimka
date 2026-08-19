@@ -157,6 +157,36 @@ class VKClient:
             log.warning("Сообщение не поправилось: %s", exc)
             return False
 
+    def remove_chat_user(self, chat_id: int, member_id: int) -> bool:
+        """Исключить участника. chat_id — номер беседы, не peer_id.
+
+        Человека, которого уже нет в беседе, ВКонтакте исключить откажется —
+        это ожидаемо и аварией не считается.
+        """
+        if self._dry_run:
+            log.info("[dry-run] исключаю %s из беседы %s", member_id, chat_id)
+            return True
+        try:
+            self.call("messages.removeChatUser", chat_id=chat_id, member_id=member_id)
+            return True
+        except VKError as exc:
+            log.warning("Не удалось исключить %s: %s", member_id, exc)
+            return False
+
+    def user_name(self, user_id: int) -> str:
+        """Имя и фамилия. Не вышло — обойдёмся числом."""
+        try:
+            found = self.call("users.get", user_ids=user_id)
+        except VKError as exc:
+            log.warning("Имя %s не узнал: %s", user_id, exc)
+            return ""
+        if isinstance(found, list) and found:
+            person = found[0]
+            return " ".join(
+                part for part in (person.get("first_name"), person.get("last_name")) if part
+            ).strip()
+        return ""
+
     def long_poll_server(self, group_id: int) -> dict:
         return self.call("groups.getLongPollServer", group_id=group_id)  # type: ignore[return-value]
 

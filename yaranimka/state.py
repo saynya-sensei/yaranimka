@@ -169,6 +169,21 @@ class State:
     def unwatch(self, key: str) -> None:
         self._data["watch"].pop(key, None)
 
+    # --- вышедшие из беседы ---
+    #
+    # Список нужен на случай, если ВКонтакте всё же пустит вышедшего обратно:
+    # тогда бот узнает своего и исключит повторно. Приглашённого админом
+    # из списка убираем — его вернули намеренно.
+
+    def mark_left(self, user_id: int, when: datetime) -> None:
+        self._data.setdefault("left", {})[str(user_id)] = when.isoformat()
+
+    def has_left(self, user_id: int) -> bool:
+        return str(user_id) in (self._data.get("left") or {})
+
+    def forget_left(self, user_id: int) -> None:
+        (self._data.get("left") or {}).pop(str(user_id), None)
+
     def save(self) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)

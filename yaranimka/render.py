@@ -83,6 +83,24 @@ def season_opening(titles: Sequence[SeasonTitle], name: str, year: int) -> str:
     return f"{head}\n\n" + "\n".join(lines)
 
 
+def mention(user_id: int, name: str) -> str:
+    """Ссылка на профиль. Уведомления у сообщения выключены, так что не пингует."""
+    return f"[id{user_id}|{name or 'участник'}]"
+
+
+def left_notice(user_id: int, name: str, *, kicked: bool) -> str:
+    """Кто вышел из беседы. ВКонтакте об этом молчит, поэтому говорим мы."""
+    who = mention(user_id, name)
+    if kicked:
+        return f"🚪 {who} вышел из беседы. Вернуться самостоятельно уже не получится — нужно приглашение."
+    return f"🚪 {who} вышел из беседы."
+
+
+def returned_notice(user_id: int, name: str) -> str:
+    """Вышедший вернулся сам — и был выставлен обратно."""
+    return f"🚪 {mention(user_id, name)} вернулся в беседу сам и был исключён. Пригласите его заново, если это ошибка."
+
+
 def _line(ep: Episode, tz: timezone, releases: Sequence[Release] = ()) -> str:
     episode = f"{ep.episode} серия" if ep.episode else "новая серия"
     parts = [f"• {ep.title} — {episode}, {ep.local_time(tz)}"]

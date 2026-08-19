@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 
 import httpx
 
-from . import render, torrents
+from . import config, render, torrents
 from .commands import parse
 from .config import Config
 from .shikimori import (Episode, HEADERS, News, ShikimoriError,
@@ -33,12 +33,15 @@ FAREWELL_DAYS = 7
 
 
 class Bot:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, *, vk=None, web=None):
+        # Клиенты можно передать снаружи: создание SSL-контекста стоит заметных
+        # долей секунды, и тестам ни к чему платить её на каждый случай.
         self._cfg = cfg
-        self._vk = VKClient(cfg.vk_token, dry_run=cfg.dry_run)
-        self._web = httpx.Client(timeout=30.0, headers=HEADERS, follow_redirects=True)
+        self._vk = vk or VKClient(cfg.vk_token, dry_run=cfg.dry_run)
+        self._web = web or httpx.Client(timeout=30.0, headers=HEADERS, follow_redirects=True)
         self._state = State(cfg.state_path)
         self._checked_at: datetime | None = None
+        self._names: dict[int, str] = {}
 
     def close(self) -> None:
         self._vk.close()
@@ -160,6 +163,12 @@ class Bot:
 
         obj = update.get("object") or {}
         message = obj.get("message") or obj
+
+        # Служебные события беседы приходят теми же message_new, но с action.
+        if message.get("action"):
+            self.guard(message)
+            return
+
         # Свои же сообщения приходят обратно: у сообщества from_id отрицательный.
         if int(message.get("from_id", 0)) <= 0:
             return
@@ -173,6 +182,73 @@ class Bot:
         reply = self.answer(command, argument)
         if reply:
             self._vk.send_message(int(message["peer_id"]), reply)
+
+    # --- охрана беседы ---
+
+    def guard(self, message: dict) -> None:
+        """Служебные события беседы: кто вышел и кто вернулся.
+
+        ВКонтакте перестал показывать сообщения о выходе, но событие боту
+        по-прежнему приходит. Отличаем добровольный уход от исключения по
+        совпадению member_id и from_id: человек сам себя не выгоняет.
+        """
+        cfg = self._cfg
+        action = message.get("action") or {}
+        kind = action.get("type")
+        peer_id = int(message.get("peer_id") or cfg.peer_id)
+
+        try:
+            member = int(action.get("member_id") or 0)
+            author = int(message.get("from_id") or 0)
+        except (TypeError, ValueError):
+            return
+
+        # Сообщества в беседе приходят отрицательным id — их не трогаем.
+        if member <= 0:
+            return
+
+        if kind == "chat_kick_user":
+            if member != author:
+                # Исключил админ: возвращаться ему и так нельзя.
+                self._state.forget_left(member)
+                self._state.save()
+                return
+            self.on_left(peer_id, member)
+
+        elif kind in ("chat_invite_user", "chat_invite_user_by_link"):
+            if member != author:
+                # Пригласили намеренно — снимаем метку и пускаем.
+                self._state.forget_left(member)
+                self._state.save()
+            elif self._state.has_left(member):
+                self.on_returned(peer_id, member)
+
+    def on_left(self, peer_id: int, member: int) -> None:
+        cfg = self._cfg
+        log.info("Из беседы вышел %s", member)
+        self._state.mark_left(member, self.now())
+        self._state.save()
+
+        # Кик уже вышедшего — попытка запретить ему тихо вернуться. Сработает
+        # он или нет, зависит от ВКонтакте, поэтому вторая линия обороны —
+        # перехват самого возвращения.
+        kicked = cfg.leave_kick and self._vk.remove_chat_user(config.chat_number(peer_id), member)
+        if cfg.leave_notify:
+            self._vk.send_message(peer_id, render.left_notice(member, self.name_of(member), kicked=kicked))
+
+    def on_returned(self, peer_id: int, member: int) -> None:
+        cfg = self._cfg
+        log.info("Вернулся сам %s — исключаю", member)
+        if cfg.leave_kick:
+            self._vk.remove_chat_user(config.chat_number(peer_id), member)
+        if cfg.leave_notify:
+            self._vk.send_message(peer_id, render.returned_notice(member, self.name_of(member)))
+
+    def name_of(self, user_id: int) -> str:
+        """Имя участника с запоминанием: одного и того же спрашиваем однажды."""
+        if user_id not in self._names:
+            self._names[user_id] = self._vk.user_name(user_id)
+        return self._names[user_id]
 
     # --- ежедневная рассылка ---
 

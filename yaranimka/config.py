@@ -44,6 +44,15 @@ def chat_peer_id(raw: str | int) -> int:
     return value if value >= CHAT_PEER_OFFSET else CHAT_PEER_OFFSET + value
 
 
+def chat_number(peer_id: int) -> int:
+    """peer_id беседы обратно в её номер.
+
+    messages.removeChatUser принимает именно номер: на peer_id он отвечает
+    «chat_id should be less than 100000000».
+    """
+    return peer_id - CHAT_PEER_OFFSET if peer_id >= CHAT_PEER_OFFSET else peer_id
+
+
 def parse_time(raw: str) -> tuple[int, int]:
     """«10:00» → (10, 0). Пустая строка и мусор поднимают ValueError."""
     hours, _, minutes = raw.strip().partition(":")
@@ -75,6 +84,11 @@ class Config:
     # Сезонные напоминания: последняя неделя сезона и старт нового.
     season: bool = field(default_factory=lambda: _bool("YARANIMKA_SEASON", True))
     season_top: int = field(default_factory=lambda: _int("YARANIMKA_SEASON_TOP", 5))
+
+    # Охрана беседы. ВКонтакте не показывает, что участник вышел, и позволяет
+    # ему вернуться самому — бот закрывает и то, и другое.
+    leave_notify: bool = field(default_factory=lambda: _bool("YARANIMKA_LEAVE_NOTIFY", True))
+    leave_kick: bool = field(default_factory=lambda: _bool("YARANIMKA_LEAVE_KICK", True))
 
     # Слежение за русскими раздачами вышедших серий. Обе площадки берутся
     # одной лентой на обход, поэтому получасовой интервал остаётся щадящим
