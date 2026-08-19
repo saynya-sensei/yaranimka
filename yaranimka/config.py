@@ -36,8 +36,11 @@ def _bool(name: str, default: bool = False) -> bool:
 
 
 def chat_peer_id(raw: str | int) -> int:
-    """Номер беседы или готовый peer_id — в peer_id."""
-    value = int(str(raw).strip())
+    """Номер беседы или готовый peer_id — в peer_id. Пусто — ноль."""
+    text = str(raw).strip()
+    if not text:
+        return 0
+    value = int(text)
     return value if value >= CHAT_PEER_OFFSET else CHAT_PEER_OFFSET + value
 
 

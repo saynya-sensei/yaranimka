@@ -84,7 +84,7 @@ class TestSchedule:
         })
         assert ep is not None
         assert (ep.title, ep.episode, ep.score) == ("Клеватесс 2", 7, 7.71)
-        assert ep.url == "https://shikimori.one/animes/62513-clevatess"
+        assert ep.url == f"{shikimori.API}/animes/62513-clevatess"
         assert ep.local_time(TZ) == "16:00"
 
     @pytest.mark.parametrize("entry", [
@@ -177,9 +177,11 @@ class FakeClient:
     def __init__(self, *script):
         self.script = list(script)
         self.calls = 0
+        self.hosts: list[str] = []
 
     def get(self, url, params=None, headers=None):
         self.calls += 1
+        self.hosts.append(url.split("/api/")[0])
         step = self.script.pop(0)
         if isinstance(step, Exception):
             raise step
@@ -222,3 +224,19 @@ class TestRetries:
     def test_search_retries_too(self):
         client = FakeClient(httpx.ReadTimeout("таймаут"), FakeResponse(200, [{"id": 1}]))
         assert shikimori.search("клев", client=client) == [{"id": 1}]
+
+    def test_403_moves_to_another_mirror(self):
+        # 403 у Shikimori — защита от ботов, а не отказ: другое зеркало
+        # на тот же запрос отвечает нормально.
+        client = FakeClient(FakeResponse(403), FakeResponse(200, []))
+        assert shikimori.fetch_calendar(client) == []
+        assert client.calls == 2
+
+    def test_mirrors_rotate_between_attempts(self):
+        client = FakeClient(FakeResponse(403), FakeResponse(403), FakeResponse(200, []))
+        assert shikimori.fetch_calendar(client) == []
+        assert client.hosts == [shikimori.MIRRORS[0], shikimori.MIRRORS[1], shikimori.MIRRORS[0]]
+
+    def test_working_mirror_goes_first(self):
+        # В ссылки идёт то же зеркало, на которое ходит бот.
+        assert shikimori.API == shikimori.MIRRORS[0] == "https://shikimori.io"

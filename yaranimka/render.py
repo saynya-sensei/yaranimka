@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date, timezone
 
+from . import shikimori
 from .shikimori import Episode
 from .state import Watched
 from .torrents import Release
@@ -170,6 +171,6 @@ def search_results(query: str, animes: list[dict]) -> str:
         year = (anime.get("aired_on") or "")[:4]
         score = anime.get("score") or "—"
         tail = " · ".join(part for part in (year, f"оценка {score}") if part)
-        lines.append(f"• {title} ({tail})\n  https://shikimori.one{anime.get('url', '')}")
+        lines.append(f"• {title} ({tail})\n  {shikimori.API}{anime.get('url', '')}")
 
     return f"🔎 По запросу «{query}»:\n\n" + "\n".join(lines)

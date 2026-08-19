@@ -11,13 +11,24 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-API = "https://shikimori.one"
+# Зеркала по порядку. Первое — рабочее, оно же идёт в ссылки.
+#
+# Обращаться к shikimori.one нельзя: он давно только редиректит на .io, но при
+# этом непредсказуемо отвечает 403 — на одни и те же заголовки то пропускает,
+# то нет. Каждый запрос через него был лишним походом на ненадёжный хост.
+# Оставлен запасным: зеркала у Shikimori периодически меняются местами.
+MIRRORS = ("https://shikimori.io", "https://shikimori.one")
+API = MIRRORS[0]
 
 # Shikimori требует внятный User-Agent и режет анонимные запросы без него.
 HEADERS = {"User-Agent": "yaranimka-vk-bot"}
 
 TIMEOUT = 30.0
 ATTEMPTS = 3
+
+# 403 у Shikimori — это защита от ботов, а не «вам сюда нельзя»: другое
+# зеркало на тот же запрос отвечает нормально. 429 — просто перебор частоты.
+RETRY_CODES = {403, 429}
 
 
 class ShikimoriError(RuntimeError):
@@ -104,11 +115,14 @@ def _fetch(path: str, params: dict, client: httpx.Client | None) -> list:
 
     try:
         for attempt in range(ATTEMPTS):
+            # Каждая попытка идёт на следующее зеркало: осечка одного хоста
+            # лечится не паузой, а другим хостом.
+            host = MIRRORS[attempt % len(MIRRORS)]
             try:
-                resp = client.get(f"{API}{path}", params=params, headers=HEADERS)
+                resp = client.get(f"{host}{path}", params=params, headers=HEADERS)
             except httpx.HTTPError as exc:
                 last = f"{type(exc).__name__}: {exc}"
-                log.warning("Shikimori не отозвался (%s/%s): %s", attempt + 1, ATTEMPTS, last)
+                log.warning("%s не отозвался (%s/%s): %s", host, attempt + 1, ATTEMPTS, last)
             else:
                 if resp.status_code == 200:
                     data = resp.json()
@@ -116,10 +130,10 @@ def _fetch(path: str, params: dict, client: httpx.Client | None) -> list:
                         raise ShikimoriError("Ответ пришёл в неожиданном формате")
                     return data
                 last = f"ответил {resp.status_code}"
-                # 4xx повторять бессмысленно: ответ не изменится.
-                if resp.status_code < 500:
+                # 404 и прочие явные отказы от повторов не поправятся.
+                if resp.status_code < 500 and resp.status_code not in RETRY_CODES:
                     break
-                log.warning("Shikimori %s (%s/%s)", last, attempt + 1, ATTEMPTS)
+                log.warning("%s %s (%s/%s)", host, last, attempt + 1, ATTEMPTS)
 
             if attempt + 1 < ATTEMPTS:
                 time.sleep(2**attempt)
