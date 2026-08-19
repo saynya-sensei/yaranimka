@@ -65,7 +65,6 @@ class Config:
     # Порог оценки отсекает их, ноль выключает фильтр целиком.
     min_score: float = field(default_factory=lambda: _float("YARANIMKA_MIN_SCORE", 0.0))
     max_items: int = field(default_factory=lambda: _int("YARANIMKA_MAX_ITEMS", 20))
-    show_links: bool = field(default_factory=lambda: _bool("YARANIMKA_LINKS", True))
 
     # Слежение за русскими раздачами вышедших серий. Обе площадки берутся
     # одной лентой на обход, поэтому получасовой интервал остаётся щадящим

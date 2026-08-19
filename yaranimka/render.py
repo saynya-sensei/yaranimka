@@ -50,11 +50,9 @@ def human_date(day: date, *, weekday: bool = False) -> str:
     return f"{WEEKDAYS[day.weekday()]}, {text}" if weekday else text
 
 
-def _line(ep: Episode, tz: timezone, *, links: bool, releases: Sequence[Release] = ()) -> str:
+def _line(ep: Episode, tz: timezone, releases: Sequence[Release] = ()) -> str:
     episode = f"{ep.episode} серия" if ep.episode else "новая серия"
     parts = [f"• {ep.title} — {episode}, {ep.local_time(tz)}"]
-    if links:
-        parts.append(f"  {ep.url}")
     for release in releases:
         parts.append(f"  {release.icon} {release.label}: {release.url}")
     return "\n".join(parts)
@@ -66,7 +64,6 @@ def daily_digest(
     tz: timezone,
     *,
     today: date | None = None,
-    links: bool = True,
     max_items: int = 20,
     releases: dict[str, Sequence[Release]] | None = None,
     updated: str | None = None,
@@ -74,9 +71,9 @@ def daily_digest(
 ) -> str:
     """Расписание на один день — ровно одним сообщением.
 
-    Сообщение единственное и правится на месте, поэтому резать его на части
-    нельзя. Если список не влезает, сначала уходят ссылки на Shikimori,
-    и только потом сокращается сам список: ссылки на раздачи ценнее.
+    Единственная ссылка в строке — на раздачу, и появляется она только когда
+    раздача есть. Сообщение одно и правится на месте, резать его на части
+    нельзя, поэтому при переполнении список сокращается.
     """
     # Сегодняшний день называем словом, любой другой — днём недели:
     # «Сегодня, 19 августа» и «Четверг, 20 августа».
@@ -88,14 +85,10 @@ def daily_digest(
     found = releases or {}
     head = f"🌸 {when} — {len(episodes)} {plural(len(episodes), 'серия', 'серии', 'серий')}"
 
-    def build(count: int, with_links: bool) -> str:
-        shown = episodes[:count]
-        body = "\n".join(
-            _line(ep, tz, links=with_links, releases=found.get(ep.key, ()))
-            for ep in shown
-        )
+    def build(count: int) -> str:
+        body = "\n".join(_line(ep, tz, found.get(ep.key, ())) for ep in episodes[:count])
         text = f"{head}\n\n{body}"
-        hidden = len(episodes) - len(shown)
+        hidden = len(episodes) - count
         if hidden > 0:
             text += f"\n\n…и ещё {hidden} {plural(hidden, 'серия', 'серии', 'серий')}"
         if updated:
@@ -103,16 +96,10 @@ def daily_digest(
         return text
 
     count = max(1, min(max_items, len(episodes)))
-    for with_links in ((True, False) if links else (False,)):
-        text = build(count, with_links)
-        if len(text) <= limit:
-            return text
-
-    while count > 1:
+    text = build(count)
+    while len(text) > limit and count > 1:
         count -= 1
-        text = build(count, False)
-        if len(text) <= limit:
-            return text
+        text = build(count)
     return text[:limit]
 
 
@@ -122,14 +109,9 @@ def week_digest(
     tz: timezone,
     *,
     days: int = 7,
-    links: bool = False,
     max_items: int = 20,
 ) -> str:
-    """Ближайшая неделя, разбитая по дням.
-
-    Ссылки по умолчанию выключены: на семь дней их набирается столько,
-    что сообщение превращается в простыню.
-    """
+    """Ближайшая неделя, разбитая по дням."""
     by_day: dict[date, list[Episode]] = {}
     for ep in episodes:
         day = ep.local_date(tz)
@@ -142,7 +124,7 @@ def week_digest(
     blocks = []
     for day in sorted(by_day):
         items = by_day[day][:max_items]
-        lines = "\n".join(_line(ep, tz, links=links) for ep in items)
+        lines = "\n".join(_line(ep, tz) for ep in items)
         hidden = len(by_day[day]) - len(items)
         if hidden > 0:
             lines += f"\n• …и ещё {hidden}"

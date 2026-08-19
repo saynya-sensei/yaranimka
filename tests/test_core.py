@@ -120,10 +120,11 @@ class TestRender:
         text = render.daily_digest([], date(2026, 8, 19), TZ, today=date(2026, 8, 19))
         assert "Ни одной серии" in text
 
-    def test_links_optional(self):
-        with_links = render.daily_digest([episode(15)], date(2026, 8, 19), TZ, links=True)
-        without = render.daily_digest([episode(15)], date(2026, 8, 19), TZ, links=False)
-        assert "shikimori.one" in with_links and "shikimori.one" not in without
+    def test_no_link_without_a_release(self):
+        # Ссылка в строке ровно одна и только на раздачу: страница тайтла
+        # на Shikimori в беседе никому не нужна.
+        text = render.daily_digest([episode(15)], date(2026, 8, 19), TZ)
+        assert "http" not in text
 
     def test_max_items_reports_remainder(self):
         text = render.daily_digest([episode(10 + i) for i in range(5)], date(2026, 8, 19), TZ, max_items=2)

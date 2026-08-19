@@ -73,7 +73,7 @@ class Bot:
 
         return render.daily_digest(
             episodes, day, cfg.tz,
-            today=today, links=cfg.show_links, max_items=cfg.max_items,
+            today=today, max_items=cfg.max_items,
             releases=releases, updated=updated,
         )
 
@@ -91,7 +91,7 @@ class Bot:
             if command == "week":
                 return render.week_digest(
                     [ep for ep in self._calendar() if ep.score >= cfg.min_score],
-                    self.now().date(), cfg.tz, links=False, max_items=cfg.max_items,
+                    self.now().date(), cfg.tz, max_items=cfg.max_items,
                 )
             if command == "releases":
                 return render.watch_status(self._state.watching(), cfg.tz)
@@ -141,7 +141,7 @@ class Bot:
 
         message_id = self._vk.send_message(cfg.peer_id, render.daily_digest(
             episodes, day, cfg.tz,
-            today=today, links=cfg.show_links, max_items=cfg.max_items,
+            today=today, max_items=cfg.max_items,
         ))
 
         # Дневной список сохраняем целиком: править сообщение потом будет

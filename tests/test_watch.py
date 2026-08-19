@@ -90,7 +90,7 @@ class TestDigestWithReleases:
     def test_line_without_releases_is_unchanged(self):
         ep = episode()
         text = render.daily_digest([ep], DAY, TZ, today=DAY)
-        assert "озвучка" not in text and "субтитры" not in text
+        assert "озвучка" not in text and "http" not in text
 
     def test_update_time_is_shown(self):
         text = render.daily_digest([episode()], DAY, TZ, today=DAY, updated="19:45")
@@ -108,14 +108,6 @@ class TestSingleMessage:
         text = render.daily_digest(episodes, DAY, TZ, today=DAY, max_items=40, releases=found, limit=4000)
         assert len(text) <= 4000
 
-    def test_shikimori_links_go_first(self):
-        episodes = self.many(30)
-        found = {ep.key: [DUB_RELEASE] for ep in episodes}
-        text = render.daily_digest(episodes, DAY, TZ, today=DAY, max_items=30, releases=found, limit=4000)
-        # Ссылки на раздачи ценнее ссылок на Shikimori, их и оставляем.
-        assert "shikimori.one/animes" not in text
-        assert "anilibria.top" in text
-
     def test_list_is_trimmed_only_as_a_last_resort(self):
         episodes = self.many(40)
         found = {ep.key: [DUB_RELEASE, SUB_RELEASE] for ep in episodes}
@@ -126,7 +118,7 @@ class TestSingleMessage:
     def test_short_day_keeps_everything(self):
         ep = episode()
         text = render.daily_digest([ep], DAY, TZ, today=DAY, releases={ep.key: [DUB_RELEASE]})
-        assert "shikimori.one/animes" in text and "anilibria.top" in text
+        assert "…и ещё" not in text and "anilibria.top" in text
 
 
 class TestStatusCommand:
