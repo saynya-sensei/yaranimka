@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 
 from yaranimka import render
-from yaranimka.shikimori import Episode
+from yaranimka.shikimori import Episode, News
 from yaranimka.state import State
 from yaranimka.torrents import DUB, SUB, Release
 
@@ -135,3 +135,52 @@ class TestStatusCommand:
 
     def test_status_when_empty(self):
         assert "ничего не отслеживаю" in render.watch_status([], TZ)
+
+
+class TestNews:
+    def note(self, n: int = 1) -> News:
+        return News(f"Трейлер «Тайтл {n}»", f"https://shikimori.io/forum/news/{n}",
+                    datetime(2026, 8, 19, 15, 40, tzinfo=TZ))
+
+    def test_news_go_after_the_schedule(self):
+        text = render.daily_digest([episode()], DAY, TZ, today=DAY, news=[self.note(1), self.note(2)])
+        assert text.index("• Клеватесс 2") < text.index("📰 Что нового в аниме")
+        assert "• Трейлер «Тайтл 1»\n  https://shikimori.io/forum/news/1" in text
+
+    def test_no_block_without_news(self):
+        assert "📰" not in render.daily_digest([episode()], DAY, TZ, today=DAY)
+
+    def test_news_leave_before_the_schedule_is_cut(self):
+        # Новости — довесок, расписание — суть: при переполнении жертвуем ими.
+        episodes = [episode(anime_id=i, title=f"Тайтл {i} " + "длинное " * 6) for i in range(12)]
+        notes = [self.note(i) for i in range(5)]
+
+        # Лимит подбираем так, чтобы список влезал целиком, а с новостями — нет.
+        bare = render.daily_digest(episodes, DAY, TZ, today=DAY, max_items=12)
+        text = render.daily_digest(episodes, DAY, TZ, today=DAY,
+                                   max_items=12, news=notes, limit=len(bare) + 20)
+
+        assert "📰" not in text, "новости должны уйти первыми"
+        assert "…и ещё" not in text, "список резать было рано"
+
+    def test_schedule_is_cut_only_when_dropping_news_is_not_enough(self):
+        episodes = [episode(anime_id=i, title=f"Тайтл {i} " + "длинное " * 6) for i in range(12)]
+        text = render.daily_digest(episodes, DAY, TZ, today=DAY,
+                                   max_items=12, news=[self.note(1)], limit=600)
+        assert len(text) <= 600
+        assert "📰" not in text and "…и ещё" in text
+
+    def test_news_survive_a_restart(self, tmp_path):
+        path = tmp_path / "state.json"
+        first = State(path)
+        first.mark_digest(DAY, 4242, [self.note(1)])
+        first.save()
+
+        again = State(path).digest_news
+        assert len(again) == 1 and again[0].url == "https://shikimori.io/forum/news/1"
+
+    def test_yesterday_news_are_not_ours(self, tmp_path):
+        state = State(tmp_path / "state.json")
+        state.mark_digest(DAY, 4242, [self.note(1)])
+        state.mark_digest(DAY + timedelta(days=1), None, [])
+        assert state.digest_news == []

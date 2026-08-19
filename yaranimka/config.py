@@ -69,6 +69,9 @@ class Config:
     min_score: float = field(default_factory=lambda: _float("YARANIMKA_MIN_SCORE", 0.0))
     max_items: int = field(default_factory=lambda: _int("YARANIMKA_MAX_ITEMS", 20))
 
+    # Новости аниме с форума Shikimori под списком серий. Ноль убирает блок.
+    news_items: int = field(default_factory=lambda: _int("YARANIMKA_NEWS", 3))
+
     # Слежение за русскими раздачами вышедших серий. Обе площадки берутся
     # одной лентой на обход, поэтому получасовой интервал остаётся щадящим
     # даже когда в списке два десятка серий.

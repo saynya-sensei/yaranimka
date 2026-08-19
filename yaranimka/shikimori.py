@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 
@@ -154,6 +154,64 @@ def fetch_calendar(client: httpx.Client | None = None) -> list[Episode]:
     episodes = [ep for ep in (_parse(item) for item in data) if ep]
     episodes.sort(key=lambda ep: (ep.at, ep.title))
     return episodes
+
+
+@dataclass(frozen=True)
+class News:
+    """Заметка с новостного форума Shikimori."""
+
+    title: str
+    url: str
+    at: datetime
+
+    def as_dict(self) -> dict:
+        return {"title": self.title, "url": self.url, "at": self.at.isoformat()}
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "News":
+        return cls(str(raw["title"]), str(raw["url"]), datetime.fromisoformat(raw["at"]))
+
+
+def _news_title(topic: dict) -> str:
+    """Заголовок новости, с ромадзи заменённым на русское название.
+
+    Shikimori пишет заголовки вида «Трейлер "Haikyuu!! Bakemono-tachi..."»,
+    а рядом в linked лежит русское имя того же тайтла. В беседе на русском
+    второе читается несравнимо лучше.
+    """
+    title = (topic.get("topic_title") or "").strip()
+    linked = topic.get("linked") or {}
+    romaji = (linked.get("name") or "").strip()
+    russian = (linked.get("russian") or "").strip()
+    if romaji and russian and romaji in title:
+        title = title.replace(romaji, russian)
+    return title
+
+
+def fetch_news(limit: int = 3, client: httpx.Client | None = None, max_age_days: int = 3) -> list[News]:
+    """Свежие новости аниме — на русском, с новостного форума Shikimori."""
+    if limit <= 0:
+        return []
+
+    # Берём с запасом: часть заметок отсеется по возрасту.
+    data = _fetch("/api/topics", {"forum": "news", "limit": max(limit * 3, 10)}, client)
+    edge = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+
+    out = []
+    for topic in data:
+        title, topic_id = _news_title(topic), topic.get("id")
+        if not title or not topic_id:
+            continue
+        try:
+            at = datetime.fromisoformat(topic.get("created_at") or "")
+        except ValueError:
+            continue
+        if at < edge:
+            continue
+        out.append(News(title=title, url=f"{API}/forum/news/{topic_id}", at=at))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def on_day(episodes: list[Episode], day: date, tz: timezone, *, min_score: float = 0.0) -> list[Episode]:

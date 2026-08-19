@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import date, timezone
 
 from . import shikimori
-from .shikimori import Episode
+from .shikimori import Episode, News
 from .state import Watched
 from .torrents import Release
 from .vk import MAX_LEN
@@ -51,6 +51,17 @@ def human_date(day: date, *, weekday: bool = False) -> str:
     return f"{WEEKDAYS[day.weekday()]}, {text}" if weekday else text
 
 
+def greeting(hour: int) -> str:
+    """Приветствие по времени суток — дайджест могут запустить когда угодно."""
+    if 5 <= hour < 12:
+        return "Доброе утро"
+    if 12 <= hour < 18:
+        return "Добрый день"
+    if 18 <= hour < 23:
+        return "Добрый вечер"
+    return "Доброй ночи"
+
+
 def _line(ep: Episode, tz: timezone, releases: Sequence[Release] = ()) -> str:
     episode = f"{ep.episode} серия" if ep.episode else "новая серия"
     parts = [f"• {ep.title} — {episode}, {ep.local_time(tz)}"]
@@ -67,6 +78,8 @@ def daily_digest(
     today: date | None = None,
     max_items: int = 20,
     releases: dict[str, Sequence[Release]] | None = None,
+    news: Sequence[News] = (),
+    hour: int | None = None,
     updated: str | None = None,
     limit: int = MAX_LEN,
 ) -> str:
@@ -74,33 +87,46 @@ def daily_digest(
 
     Единственная ссылка в строке — на раздачу, и появляется она только когда
     раздача есть. Сообщение одно и правится на месте, резать его на части
-    нельзя, поэтому при переполнении список сокращается.
+    нельзя, поэтому при переполнении сначала уходят новости, а потом
+    сокращается список: расписание тут главное, новости — довесок.
     """
-    # Сегодняшний день называем словом, любой другой — днём недели:
-    # «Сегодня, 19 августа» и «Четверг, 20 августа».
-    when = f"Сегодня, {human_date(day)}" if day == today else human_date(day, weekday=True).capitalize()
+    hello = f"{greeting(hour if hour is not None else 12)}, любимые накамычи! 🌸"
+    when = human_date(day, weekday=True).capitalize()
+    count_word = f"{len(episodes)} {plural(len(episodes), 'серия', 'серии', 'серий')} онгоингов"
+    today_word = "сегодня " if day == today else ""
 
     if not episodes:
-        return f"🌸 {when}\n\nНи одной серии — день без онгоингов, отдыхаем."
+        head = f"{hello}\n\n{when} — сегодня онгоинги отдыхают, ни одной серии."
+    else:
+        head = f"{hello}\n\n{when} — {today_word}выходит {count_word}"
 
     found = releases or {}
-    head = f"🌸 {when} — {len(episodes)} {plural(len(episodes), 'серия', 'серии', 'серий')}"
 
-    def build(count: int) -> str:
-        body = "\n".join(_line(ep, tz, found.get(ep.key, ())) for ep in episodes[:count])
-        text = f"{head}\n\n{body}"
-        hidden = len(episodes) - count
-        if hidden > 0:
-            text += f"\n\n…и ещё {hidden} {plural(hidden, 'серия', 'серии', 'серий')}"
+    def build(count: int, with_news: bool) -> str:
+        text = head
+        if episodes:
+            body = "\n".join(_line(ep, tz, found.get(ep.key, ())) for ep in episodes[:count])
+            text += "\n\n" + body
+            hidden = len(episodes) - count
+            if hidden > 0:
+                text += f"\n\n…и ещё {hidden} {plural(hidden, 'серия', 'серии', 'серий')}"
+        if with_news and news:
+            notes = "\n".join(f"• {item.title}\n  {item.url}" for item in news)
+            text += f"\n\n📰 Что нового в аниме\n\n{notes}"
         if updated:
             text += f"\n\nОбновлено в {updated}"
         return text
 
-    count = max(1, min(max_items, len(episodes)))
-    text = build(count)
+    count = max(1, min(max_items, len(episodes))) if episodes else 0
+
+    text = build(count, True)
+    if len(text) <= limit:
+        return text
+
+    text = build(count, False)
     while len(text) > limit and count > 1:
         count -= 1
-        text = build(count)
+        text = build(count, False)
     return text[:limit]
 
 

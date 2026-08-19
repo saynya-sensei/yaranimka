@@ -107,19 +107,22 @@ class TestRender:
                ["серия", "серии", "серий", "серий", "серия", "серий"]
 
     def test_daily_says_today(self):
-        text = render.daily_digest([episode(15)], date(2026, 8, 19), TZ, today=date(2026, 8, 19))
-        assert text.startswith("🌸 Сегодня, 19 августа — 1 серия")
+        text = render.daily_digest([episode(15)], date(2026, 8, 19), TZ,
+                                   today=date(2026, 8, 19), hour=10)
+        assert text.startswith("Доброе утро, любимые накамычи! 🌸")
+        assert "Среда, 19 августа — сегодня выходит 1 серия онгоингов" in text
         assert "• Тайтл — 7 серия, 15:00" in text
 
     def test_daily_names_other_days(self):
         text = render.daily_digest([episode(15, day=20)], date(2026, 8, 20), TZ, today=date(2026, 8, 19))
-        assert text.startswith("🌸 Четверг, 20 августа — 1 серия")
-        # Дата в заголовке ровно одна: «Четверг, 20 августа, 20 августа» — это баг.
+        # Не сегодня — значит и слова «сегодня» в заголовке быть не должно.
+        assert "Четверг, 20 августа — выходит 1 серия онгоингов" in text
         assert text.count("20 августа") == 1
 
     def test_empty_day(self):
         text = render.daily_digest([], date(2026, 8, 19), TZ, today=date(2026, 8, 19))
-        assert "Ни одной серии" in text
+        assert "ни одной серии" in text
+        assert "накамычи" in text
 
     def test_no_link_without_a_release(self):
         # Ссылка в строке ровно одна и только на раздачу: страница тайтла
@@ -240,3 +243,18 @@ class TestRetries:
     def test_working_mirror_goes_first(self):
         # В ссылки идёт то же зеркало, на которое ходит бот.
         assert shikimori.API == shikimori.MIRRORS[0] == "https://shikimori.io"
+
+
+class TestGreeting:
+    @pytest.mark.parametrize("hour,expected", [
+        (7, "Доброе утро"), (11, "Доброе утро"),
+        (12, "Добрый день"), (17, "Добрый день"),
+        (18, "Добрый вечер"), (22, "Добрый вечер"),
+        (23, "Доброй ночи"), (3, "Доброй ночи"),
+    ])
+    def test_by_hour(self, hour, expected):
+        assert render.greeting(hour) == expected
+
+    def test_digest_greets_by_hour(self):
+        text = render.daily_digest([episode(15)], date(2026, 8, 19), TZ, hour=20)
+        assert text.startswith("Добрый вечер, любимые накамычи! 🌸")

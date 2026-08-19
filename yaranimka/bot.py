@@ -11,7 +11,8 @@ import httpx
 from . import render, torrents
 from .commands import parse
 from .config import Config
-from .shikimori import Episode, HEADERS, ShikimoriError, fetch_calendar, on_day, search
+from .shikimori import (Episode, HEADERS, News, ShikimoriError,
+                        fetch_calendar, fetch_news, on_day, search)
 from .state import State
 from .vk import LongPoll, VKClient
 
@@ -71,11 +72,27 @@ class Bot:
         else:
             episodes, releases = self.episodes_on(day), {}
 
+        # Новости берём из снимка: при правке сообщения они меняться не должны.
+        # Снимка нет — значит это предпросмотр, и их можно запросить свежими.
+        stored = self._state.digest_news if day == self._state.last_digest else []
+        news = stored or (self.news() if day == today and not rows else [])
+
         return render.daily_digest(
             episodes, day, cfg.tz,
             today=today, max_items=cfg.max_items,
-            releases=releases, updated=updated,
+            releases=releases, news=news,
+            hour=self.now().hour, updated=updated,
         )
+
+    def news(self) -> list[News]:
+        """Новости — довесок к дайджесту, и падать из-за них нельзя."""
+        if self._cfg.news_items <= 0:
+            return []
+        try:
+            return fetch_news(self._cfg.news_items, self._web)
+        except ShikimoriError as exc:
+            log.warning("Новости не пришли: %s", exc)
+            return []
 
     # --- команды ---
 
@@ -138,10 +155,12 @@ class Bot:
         today = self.now().date()
         day = day or today
         episodes = self.episodes_on(day)
+        news = self.news()
 
         message_id = self._vk.send_message(cfg.peer_id, render.daily_digest(
             episodes, day, cfg.tz,
             today=today, max_items=cfg.max_items,
+            news=news, hour=self.now().hour,
         ))
 
         # Дневной список сохраняем целиком: править сообщение потом будет
@@ -149,7 +168,7 @@ class Bot:
         if cfg.watch:
             self.remember(episodes, day)
         if remember:
-            self._state.mark_digest(day, message_id)
+            self._state.mark_digest(day, message_id, news)
         self._state.save()
         log.info("Дайджест за %s отправлен (сообщение %s)", day, message_id)
 
@@ -185,7 +204,7 @@ class Bot:
             log.warning("Обе площадки молчат, пропускаю обход")
             return 0
 
-        news = 0
+        fresh = 0
         for item in pending:
             found = torrents.find(
                 item.titles, item.episode,
@@ -196,12 +215,12 @@ class Bot:
                 self._state.add_release(item.key, release)
                 log.info("Нашлась раздача: %s, %s серия — %s",
                          item.title, item.episode, release.label)
-            news += len(unseen)
+            fresh += len(unseen)
 
         self._state.save()
-        if news:
+        if fresh:
             self.refresh_digest()
-        return news
+        return fresh
 
     def refresh_digest(self) -> bool:
         """Переписывает сегодняшнее сообщение — новыми ссылками на раздачи.

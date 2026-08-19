@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-from .shikimori import Episode
+from .shikimori import Episode, News
 from .torrents import Release
 
 log = logging.getLogger(__name__)
@@ -90,9 +90,27 @@ class State:
         message_id = digest.get("message_id")
         return int(message_id) if message_id else None
 
-    def mark_digest(self, day: date, message_id: int | None) -> None:
+    @property
+    def digest_news(self) -> list[News]:
+        """Новости того же снимка: при правке сообщения они меняться не должны."""
+        digest = self._data.get("digest") or {}
+        if digest.get("day") != (self.last_digest.isoformat() if self.last_digest else None):
+            return []
+        out = []
+        for raw in digest.get("news", []):
+            try:
+                out.append(News.from_dict(raw))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return out
+
+    def mark_digest(self, day: date, message_id: int | None, news: list[News] | None = None) -> None:
         self._data["last_digest"] = day.isoformat()
-        self._data["digest"] = {"day": day.isoformat(), "message_id": message_id}
+        self._data["digest"] = {
+            "day": day.isoformat(),
+            "message_id": message_id,
+            "news": [item.as_dict() for item in (news or [])],
+        }
 
     # --- строки дневного списка ---
 
