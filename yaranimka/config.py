@@ -85,6 +85,10 @@ class Config:
     season: bool = field(default_factory=lambda: _bool("YARANIMKA_SEASON", True))
     season_top: int = field(default_factory=lambda: _int("YARANIMKA_SEASON_TOP", 5))
 
+    # Ответы на команды в беседе. Ноль делает бота молчаливым: он продолжает
+    # присылать дайджест и следить за беседой, но на сообщения не отвечает.
+    commands: bool = field(default_factory=lambda: _bool("YARANIMKA_COMMANDS", True))
+
     # Охрана беседы. ВКонтакте не показывает, что участник вышел, и позволяет
     # ему вернуться самому — бот закрывает и то, и другое.
     leave_notify: bool = field(default_factory=lambda: _bool("YARANIMKA_LEAVE_NOTIFY", True))

@@ -176,8 +176,27 @@ class TestNotices:
     def test_nameless_user_still_reads(self):
         assert render.mention(555, "") == "[id555|участник]"
 
+    def message(self, bot, text: str) -> None:
+        bot._handle({"type": "message_new", "object": {"message": {
+            "peer_id": PEER, "from_id": 555, "text": text}}})
+
     def test_ordinary_messages_still_work(self, bot):
         # Охрана не должна перехватывать обычные сообщения с командами.
-        bot._handle({"type": "message_new", "object": {"message": {
-            "peer_id": PEER, "from_id": 555, "text": "помощь"}}})
+        self.message(bot, "/помощь")
         assert "понимаю команды" in bot._vk.sent[0][1]
+
+    def test_chatter_is_left_alone(self, bot):
+        # Ровно та жалоба: бот отвечал на слово «завтра» в живом разговоре.
+        self.message(bot, "завтра увидимся")
+        assert bot._vk.sent == []
+
+    def test_commands_can_be_switched_off(self, bot):
+        bot._cfg.commands = False
+        self.message(bot, "/помощь")
+        assert bot._vk.sent == []
+
+    def test_guard_works_even_with_commands_off(self, bot):
+        # Молчаливый бот всё равно охраняет беседу.
+        bot._cfg.commands = False
+        bot._handle(event("chat_kick_user", 555))
+        assert bot._vk.kicked == [(CHAT, 555)]

@@ -169,6 +169,9 @@ class Bot:
             self.guard(message)
             return
 
+        if not self._cfg.commands:
+            return
+
         # Свои же сообщения приходят обратно: у сообщества from_id отрицательный.
         if int(message.get("from_id", 0)) <= 0:
             return

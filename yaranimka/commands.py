@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import re
 
-# Упоминание сообщества приходит разметкой [club123456|Яранимка]. Пока бот не
-# админ беседы, ВКонтакте отдаёт ему только такие сообщения — значит, префикс
-# надо снимать перед разбором, иначе ни одна команда не совпадёт.
+# Упоминание сообщества приходит разметкой [club123456|Яранимка].
 MENTION = re.compile(r"^\s*\[(?:club|public|id)\d+\|[^\]]*\]\s*[,:]?\s*", re.IGNORECASE)
+
+# Явный префикс команды: «/сегодня», «!сегодня».
+PREFIX = re.compile(r"^\s*[!/]\s*")
 
 ALIASES = {
     "сегодня": "today",
@@ -30,15 +31,33 @@ ALIASES = {
 
 
 def parse(text: str) -> tuple[str, str] | None:
-    """Текст сообщения → (команда, аргумент). None, если это не команда."""
+    """Текст сообщения → (команда, аргумент). None, если это не команда.
+
+    Команда обязана начинаться с обращения: упоминания сообщества либо «/»
+    или «!». Голого слова мало — в живой беседе «завтра приходи» и «аниме
+    какое посоветуете» это обычная речь, а не приказ боту. Пока бот не был
+    администратором беседы, ВКонтакте показывал ему только сообщения
+    с упоминанием, и разница не проявлялась; с правами админа он видит
+    всё подряд, и без явного обращения бот отвечал бы на каждый разговор.
+    """
     if not text:
         return None
 
-    cleaned = MENTION.sub("", text).strip().lstrip("!/.").strip()
-    if not cleaned:
+    body = text
+    called = False
+
+    if MENTION.match(body):
+        body = MENTION.sub("", body, count=1)
+        called = True
+
+    if PREFIX.match(body):
+        body = PREFIX.sub("", body, count=1)
+        called = True
+
+    if not called:
         return None
 
-    head, _, tail = cleaned.partition(" ")
+    head, _, tail = body.strip().partition(" ")
     name = ALIASES.get(head.strip().lower().rstrip("?!,."))
     if not name:
         return None

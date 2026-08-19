@@ -29,19 +29,33 @@ def episode(hour: int, *, day: int = 19, title: str = "Тайтл", num: int = 7
 
 class TestCommands:
     @pytest.mark.parametrize("text,expected", [
-        ("сегодня", ("today", "")),
         ("!Сегодня", ("today", "")),
         ("/завтра", ("tomorrow", "")),
-        ("неделя", ("week", "")),
-        ("помощь!", ("help", "")),
-        ("аниме врата стейнса", ("search", "врата стейнса")),
+        ("!неделя", ("week", "")),
+        ("/помощь!", ("help", "")),
+        ("! сегодня", ("today", "")),
+        ("/аниме врата стейнса", ("search", "врата стейнса")),
         ("[club123|Яранимка], сегодня", ("today", "")),
         ("[club123|@yaranimka] аниме наруто", ("search", "наруто")),
+        ("[club123|Яранимка] /завтра", ("tomorrow", "")),
     ])
     def test_recognises(self, text, expected):
         assert parse(text) == expected
 
-    @pytest.mark.parametrize("text", ["", "   ", "привет", "[club123|Яранимка]", "сегодняшний день"])
+    @pytest.mark.parametrize("text", [
+        "сегодня",
+        "завтра приходи пораньше",
+        "аниме какое посоветуете?",
+        "на неделя не приду",
+        "помощь нужна?",
+    ])
+    def test_bare_words_are_just_conversation(self, text):
+        # Бот админ беседы и видит все сообщения: без явного обращения он
+        # отвечал бы на обычный разговор.
+        assert parse(text) is None
+
+    @pytest.mark.parametrize("text", ["", "   ", "привет", "[club123|Яранимка]",
+                                      "/сегодняшний день", "!привет"])
     def test_ignores_everything_else(self, text):
         assert parse(text) is None
 
