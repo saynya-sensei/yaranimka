@@ -1,4 +1,9 @@
-"""Память между запусками: что уже отправлено и за какими сериями следим."""
+"""Память между запусками: отправленный дайджест и его строки.
+
+Дневной список хранится целиком, а не пересобирается из календаря: как только
+серия выходит, Shikimori переводит тайтл на следующую и сегодняшний список
+тает прямо на глазах. Редактировать сообщение было бы уже нечем.
+"""
 
 from __future__ import annotations
 
@@ -8,31 +13,47 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from .shikimori import Episode
+from .torrents import Release
+
 log = logging.getLogger(__name__)
 
 
 @dataclass
 class Watched:
-    """Серия, для которой ещё ждём появления русской раздачи."""
+    """Строка дневного списка: серия и найденные к ней раздачи."""
 
     key: str
+    day: date
     title: str
     romaji: str
     episode: int
     aired: datetime
-    found: list[str]
+    url: str
+    releases: list[Release]
 
     @property
     def titles(self) -> list[str]:
         return [name for name in (self.romaji, self.title) if name]
 
+    @property
+    def kinds(self) -> set[str]:
+        return {release.kind for release in self.releases}
+
+    def to_episode(self) -> Episode:
+        """Обратно в Episode — чтобы дайджест собирался одним и тем же кодом."""
+        anime_id = int(self.key.split(":")[0]) if self.key.split(":")[0].isdigit() else 0
+        return Episode(anime_id, self.title, self.episode, self.aired, 0.0, self.url, self.romaji)
+
     def as_dict(self) -> dict:
         return {
+            "day": self.day.isoformat(),
             "title": self.title,
             "romaji": self.romaji,
             "episode": self.episode,
             "aired": self.aired.isoformat(),
-            "found": self.found,
+            "url": self.url,
+            "releases": [release.as_dict() for release in self.releases],
         }
 
 
@@ -60,41 +81,61 @@ class State:
         except ValueError:
             return None
 
-    def mark_digest(self, day: date) -> None:
+    @property
+    def digest_message(self) -> int | None:
+        """Идентификатор отправленного сегодня сообщения — его и правим."""
+        digest = self._data.get("digest") or {}
+        if digest.get("day") != (self.last_digest.isoformat() if self.last_digest else None):
+            return None
+        message_id = digest.get("message_id")
+        return int(message_id) if message_id else None
+
+    def mark_digest(self, day: date, message_id: int | None) -> None:
         self._data["last_digest"] = day.isoformat()
-        self.save()
+        self._data["digest"] = {"day": day.isoformat(), "message_id": message_id}
 
-    # --- слежение за раздачами ---
+    # --- строки дневного списка ---
 
-    def watching(self) -> list[Watched]:
+    def watching(self, day: date | None = None) -> list[Watched]:
         out = []
         for key, raw in dict(self._data["watch"]).items():
             try:
                 out.append(Watched(
                     key=key,
+                    day=date.fromisoformat(raw["day"]),
                     title=raw["title"],
                     romaji=raw.get("romaji", ""),
                     episode=int(raw["episode"]),
                     aired=datetime.fromisoformat(raw["aired"]),
-                    found=list(raw.get("found", [])),
+                    url=raw.get("url", ""),
+                    releases=[Release.from_dict(item) for item in raw.get("releases", [])],
                 ))
             except (KeyError, TypeError, ValueError):
                 log.warning("Выбрасываю непонятную запись слежения: %s", key)
                 self._data["watch"].pop(key, None)
-        out.sort(key=lambda w: w.aired)
+
+        if day is not None:
+            out = [item for item in out if item.day == day]
+        out.sort(key=lambda item: item.aired)
         return out
 
-    def watch(self, key: str, *, title: str, romaji: str, episode: int, aired: datetime) -> bool:
-        """Ставит серию на слежение. False — такая уже в списке."""
-        if key in self._data["watch"]:
+    def watch(self, episode: Episode, day: date) -> bool:
+        """Ставит серию в дневной список. False — такая уже есть."""
+        if episode.key in self._data["watch"]:
             return False
-        self._data["watch"][key] = Watched(key, title, romaji, episode, aired, []).as_dict()
+        self._data["watch"][episode.key] = Watched(
+            key=episode.key, day=day, title=episode.title, romaji=episode.romaji,
+            episode=episode.episode, aired=episode.at, url=episode.url, releases=[],
+        ).as_dict()
         return True
 
-    def mark_found(self, key: str, kind: str) -> None:
+    def add_release(self, key: str, release: Release) -> None:
         entry = self._data["watch"].get(key)
-        if entry is not None and kind not in entry.setdefault("found", []):
-            entry["found"].append(kind)
+        if entry is None:
+            return
+        found = entry.setdefault("releases", [])
+        if all(item.get("kind") != release.kind for item in found):
+            found.append(release.as_dict())
 
     def unwatch(self, key: str) -> None:
         self._data["watch"].pop(key, None)

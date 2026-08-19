@@ -87,6 +87,23 @@ class Release:
     def icon(self) -> str:
         return KIND_ICONS.get(self.kind, KIND_ICONS[ANY])
 
+    def as_dict(self) -> dict:
+        return {
+            "kind": self.kind, "source": self.source, "name": self.name,
+            "url": self.url, "seeders": self.seeders, "size": self.size,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "Release":
+        return cls(
+            kind=str(raw.get("kind") or ANY),
+            source=str(raw.get("source") or ""),
+            name=str(raw.get("name") or ""),
+            url=str(raw.get("url") or ""),
+            seeders=raw.get("seeders"),
+            size=raw.get("size"),
+        )
+
 
 # --- сопоставление названий ---
 

@@ -52,13 +52,29 @@ class Bot:
     def episodes_on(self, day: date) -> list[Episode]:
         return on_day(self._calendar(), day, self._cfg.tz, min_score=self._cfg.min_score)
 
-    def digest(self, day: date | None = None) -> str:
+    def digest(self, day: date | None = None, *, updated: str | None = None) -> str:
+        """Дневной список — из сохранённого снимка, если он есть.
+
+        Календарь в течение дня тает: вышедшую серию Shikimori переводит на
+        следующую неделю. Пока снимок дня сохранён, отвечаем по нему — тогда
+        и команда «сегодня», и закреплённое сообщение показывают одно и то же,
+        вместе с уже найденными раздачами.
+        """
         cfg = self._cfg
         today = self.now().date()
         day = day or today
+
+        rows = self._state.watching(day)
+        if rows:
+            episodes = [row.to_episode() for row in rows]
+            releases = {row.key: row.releases for row in rows}
+        else:
+            episodes, releases = self.episodes_on(day), {}
+
         return render.daily_digest(
-            self.episodes_on(day), day, cfg.tz,
+            episodes, day, cfg.tz,
             today=today, links=cfg.show_links, max_items=cfg.max_items,
+            releases=releases, updated=updated,
         )
 
     # --- команды ---
@@ -123,46 +139,40 @@ class Bot:
         day = day or today
         episodes = self.episodes_on(day)
 
-        self._vk.send_message(cfg.peer_id, render.daily_digest(
+        message_id = self._vk.send_message(cfg.peer_id, render.daily_digest(
             episodes, day, cfg.tz,
             today=today, links=cfg.show_links, max_items=cfg.max_items,
         ))
 
-        # Серии ставим на слежение прямо здесь: другого места, где бот видит
-        # весь дневной список разом, у него нет.
-        if cfg.watch and day == today:
-            self.watch(episodes)
+        # Дневной список сохраняем целиком: править сообщение потом будет
+        # нечем — как только серия выйдет, Shikimori уберёт её из календаря.
+        if cfg.watch:
+            self.remember(episodes, day)
         if remember:
-            self._state.mark_digest(day)
+            self._state.mark_digest(day, message_id)
         self._state.save()
-        log.info("Дайджест за %s отправлен", day)
+        log.info("Дайджест за %s отправлен (сообщение %s)", day, message_id)
 
-    # --- слежение за раздачами ---
+    # --- раздачи ---
 
-    def watch(self, episodes: list[Episode]) -> int:
-        added = sum(
-            self._state.watch(ep.key, title=ep.title, romaji=ep.romaji,
-                              episode=ep.episode, aired=ep.at)
-            for ep in episodes
-        )
+    def remember(self, episodes: list[Episode], day: date) -> int:
+        added = sum(self._state.watch(ep, day) for ep in episodes)
         if added:
-            log.info("Взял на слежение %s серий", added)
+            log.info("В списке дня %s серий", added)
         return added
 
     def check_releases(self) -> int:
-        """Один обход списка слежения. Возвращает число новых находок."""
-        cfg = self._cfg
+        """Один обход раздач. Возвращает число новых находок."""
         now = self.now()
-        deadline = timedelta(days=cfg.watch_days)
+        deadline = timedelta(days=self._cfg.watch_days)
 
         pending = []
         for item in self._state.watching():
             if now - item.aired > deadline:
-                # За отведённый срок раздача либо появилась, либо её не будет:
-                # держать такую серию в списке — гонять запросы впустую.
-                log.info("Перестаю ждать раздачу: %s, %s серия", item.title, item.episode)
+                # За отведённый срок раздача либо появилась, либо её не будет,
+                # а сообщение того дня всё равно уже не поправить.
                 self._state.unwatch(item.key)
-            elif now >= item.aired:
+            elif now >= item.aired and not COMPLETE <= item.kinds:
                 pending.append(item)
 
         if not pending:
@@ -181,23 +191,31 @@ class Bot:
                 item.titles, item.episode,
                 nyaa=nyaa, anilibria=anilibria, client=self._web,
             )
-            unseen = [release for release in found if release.kind not in item.found]
-            if not unseen:
-                continue
-
+            unseen = [release for release in found if release.kind not in item.kinds]
             for release in unseen:
-                self._state.mark_found(item.key, release.kind)
+                self._state.add_release(item.key, release)
+                log.info("Нашлась раздача: %s, %s серия — %s",
+                         item.title, item.episode, release.label)
             news += len(unseen)
 
-            log.info("Нашлась раздача: %s, %s серия — %s", item.title, item.episode,
-                     ", ".join(release.label for release in unseen))
-            self._vk.send_message(cfg.peer_id, render.release_alert(item.title, item.episode, unseen))
-
-            if COMPLETE <= set(item.found) | {release.kind for release in unseen}:
-                self._state.unwatch(item.key)
-
         self._state.save()
+        if news:
+            self.refresh_digest()
         return news
+
+    def refresh_digest(self) -> bool:
+        """Переписывает сегодняшнее сообщение — новыми ссылками на раздачи.
+
+        Второго сообщения бот не отправляет никогда: если правка не прошла,
+        ссылки просто дождутся следующего дайджеста.
+        """
+        day = self._state.last_digest
+        message_id = self._state.digest_message
+        if not day or not message_id or not self._state.watching(day):
+            return False
+
+        text = self.digest(day, updated=self.now().strftime("%H:%M"))
+        return self._vk.edit_message(self._cfg.peer_id, message_id, text)
 
     def check_due(self, moment: datetime) -> bool:
         if not self._cfg.watch:

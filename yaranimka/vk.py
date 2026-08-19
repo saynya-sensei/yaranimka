@@ -107,13 +107,18 @@ class VKClient:
 
         raise VKError(0, f"{method}: не ответил после нескольких попыток")
 
-    def send_message(self, peer_id: int, text: str) -> None:
-        """Отправка от лица сообщества — токен сообщества иначе и не умеет."""
+    def send_message(self, peer_id: int, text: str) -> int | None:
+        """Отправка от лица сообщества — токен сообщества иначе и не умеет.
+
+        Возвращает идентификатор первой части: его хватает, чтобы потом
+        править сообщение через messages.edit.
+        """
+        first: int | None = None
         for part in split_message(text):
             if self._dry_run:
                 log.info("[dry-run] в %s:\n%s", peer_id, part)
                 continue
-            self.call(
+            sent = self.call(
                 "messages.send",
                 peer_id=peer_id,
                 message=part,
@@ -121,7 +126,36 @@ class VKClient:
                 disable_mentions=1,
                 dont_parse_links=0,
             )
+            if first is None and isinstance(sent, int):
+                first = sent
             time.sleep(0.4)
+        return first
+
+    def edit_message(self, peer_id: int, message_id: int, text: str) -> bool:
+        """Правка уже отправленного сообщения.
+
+        ВКонтакте разрешает править своё сообщение только сутки — ежедневному
+        дайджесту этого ровно хватает, на вчерашний бот уже и не смотрит.
+        Неудачу за аварию не считаем: пропущенная правка тише, чем лишнее
+        сообщение в беседе.
+        """
+        if self._dry_run:
+            log.info("[dry-run] правка %s в %s:\n%s", message_id, peer_id, text)
+            return True
+
+        try:
+            self.call(
+                "messages.edit",
+                peer_id=peer_id,
+                message_id=message_id,
+                message=text,
+                keep_forward_messages=1,
+                dont_parse_links=0,
+            )
+            return True
+        except VKError as exc:
+            log.warning("Сообщение не поправилось: %s", exc)
+            return False
 
     def long_poll_server(self, group_id: int) -> dict:
         return self.call("groups.getLongPollServer", group_id=group_id)  # type: ignore[return-value]
