@@ -17,10 +17,12 @@ def main(argv: list[str] | None = None) -> int:
         "mode",
         nargs="?",
         default="run",
-        choices=("run", "digest", "today", "tomorrow", "week"),
-        help="run — слушать беседу и слать дайджест по расписанию; "
+        choices=("run", "digest", "check", "today", "tomorrow", "week", "releases"),
+        help="run — слушать беседу, слать дайджест и следить за раздачами; "
              "digest — отправить дайджест за сегодня и выйти; "
-             "today/tomorrow/week — показать текст в консоли, ничего не отправляя",
+             "check — один обход торрентов и выйти; "
+             "today/tomorrow/week — показать текст в консоли, ничего не отправляя; "
+             "releases — показать список слежения",
     )
     parser.add_argument("--dry-run", action="store_true", help="ничего не отправлять, только логи")
     args = parser.parse_args(argv)
@@ -36,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg.dry_run = True
 
     # Печать в консоль токена не требует — конфиг проверяем только для отправки.
-    if args.mode in ("run", "digest"):
+    if args.mode in ("run", "digest", "check"):
         cfg.check()
 
     with Bot(cfg) as bot:
@@ -44,12 +46,16 @@ def main(argv: list[str] | None = None) -> int:
             bot.run()
         elif args.mode == "digest":
             bot.send_digest()
+        elif args.mode == "check":
+            print(f"Новых раздач: {bot.check_releases()}")
         elif args.mode == "today":
             print(bot.digest())
         elif args.mode == "tomorrow":
             print(bot.digest(bot.now().date() + timedelta(days=1)))
         elif args.mode == "week":
             print(bot.answer("week", ""))
+        elif args.mode == "releases":
+            print(bot.answer("releases", ""))
     return 0
 
 

@@ -30,6 +30,17 @@ class Episode:
     at: datetime
     score: float
     url: str
+    romaji: str = ""
+
+    @property
+    def titles(self) -> list[str]:
+        """Названия для поиска раздач: их именуют ромадзи, реже — русским."""
+        return [name for name in (self.romaji, self.title) if name]
+
+    @property
+    def key(self) -> str:
+        """Идентификатор серии: им бот помнит, о чём уже написал в беседу."""
+        return f"{self.anime_id}:{self.episode}"
 
     def local_date(self, tz: timezone) -> date:
         return self.at.astimezone(tz).date()
@@ -72,6 +83,7 @@ def _parse(entry: dict) -> Episode | None:
         at=at,
         score=_score(anime),
         url=f"{API}{anime.get('url', f'/animes/{anime_id}')}",
+        romaji=(anime.get("name") or "").strip(),
     )
 
 

@@ -112,7 +112,9 @@ class TestRender:
 
     def test_daily_names_other_days(self):
         text = render.daily_digest([episode(15, day=20)], date(2026, 8, 20), TZ, today=date(2026, 8, 19))
-        assert "Четверг, 20 августа" in text
+        assert text.startswith("🌸 Четверг, 20 августа — 1 серия")
+        # Дата в заголовке ровно одна: «Четверг, 20 августа, 20 августа» — это баг.
+        assert text.count("20 августа") == 1
 
     def test_empty_day(self):
         text = render.daily_digest([], date(2026, 8, 19), TZ, today=date(2026, 8, 19))

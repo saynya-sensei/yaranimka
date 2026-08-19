@@ -1,4 +1,4 @@
-"""Бот: ежедневный дайджест онгоингов и ответы на команды в беседе."""
+"""Бот: дайджест онгоингов, слежение за русскими раздачами и команды беседы."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 
 import httpx
 
-from . import render
+from . import render, torrents
 from .commands import parse
 from .config import Config
 from .shikimori import Episode, HEADERS, ShikimoriError, fetch_calendar, on_day, search
@@ -19,6 +19,9 @@ log = logging.getLogger(__name__)
 
 BROKEN = "Расписание сейчас не отвечает, попробуйте позже."
 
+# Нашлись и озвучка, и субтитры — ждать больше нечего.
+COMPLETE = {torrents.DUB, torrents.SUB}
+
 
 class Bot:
     def __init__(self, cfg: Config):
@@ -26,6 +29,7 @@ class Bot:
         self._vk = VKClient(cfg.vk_token, dry_run=cfg.dry_run)
         self._web = httpx.Client(timeout=30.0, headers=HEADERS, follow_redirects=True)
         self._state = State(cfg.state_path)
+        self._checked_at: datetime | None = None
 
     def close(self) -> None:
         self._vk.close()
@@ -45,13 +49,15 @@ class Bot:
     def now(self) -> datetime:
         return datetime.now(self._cfg.tz)
 
+    def episodes_on(self, day: date) -> list[Episode]:
+        return on_day(self._calendar(), day, self._cfg.tz, min_score=self._cfg.min_score)
+
     def digest(self, day: date | None = None) -> str:
         cfg = self._cfg
         today = self.now().date()
         day = day or today
-        episodes = on_day(self._calendar(), day, cfg.tz, min_score=cfg.min_score)
         return render.daily_digest(
-            episodes, day, cfg.tz,
+            self.episodes_on(day), day, cfg.tz,
             today=today, links=cfg.show_links, max_items=cfg.max_items,
         )
 
@@ -71,6 +77,8 @@ class Bot:
                     [ep for ep in self._calendar() if ep.score >= cfg.min_score],
                     self.now().date(), cfg.tz, links=False, max_items=cfg.max_items,
                 )
+            if command == "releases":
+                return render.watch_status(self._state.watching(), cfg.tz)
             if command == "search":
                 if not argument:
                     return "Что искать? Например: аниме врата стейнса"
@@ -110,12 +118,93 @@ class Bot:
         return self._state.last_digest != moment.date()
 
     def send_digest(self, day: date | None = None, *, remember: bool = True) -> None:
-        day = day or self.now().date()
-        text = self.digest(day)
-        self._vk.send_message(self._cfg.peer_id, text)
+        cfg = self._cfg
+        today = self.now().date()
+        day = day or today
+        episodes = self.episodes_on(day)
+
+        self._vk.send_message(cfg.peer_id, render.daily_digest(
+            episodes, day, cfg.tz,
+            today=today, links=cfg.show_links, max_items=cfg.max_items,
+        ))
+
+        # Серии ставим на слежение прямо здесь: другого места, где бот видит
+        # весь дневной список разом, у него нет.
+        if cfg.watch and day == today:
+            self.watch(episodes)
         if remember:
             self._state.mark_digest(day)
+        self._state.save()
         log.info("Дайджест за %s отправлен", day)
+
+    # --- слежение за раздачами ---
+
+    def watch(self, episodes: list[Episode]) -> int:
+        added = sum(
+            self._state.watch(ep.key, title=ep.title, romaji=ep.romaji,
+                              episode=ep.episode, aired=ep.at)
+            for ep in episodes
+        )
+        if added:
+            log.info("Взял на слежение %s серий", added)
+        return added
+
+    def check_releases(self) -> int:
+        """Один обход списка слежения. Возвращает число новых находок."""
+        cfg = self._cfg
+        now = self.now()
+        deadline = timedelta(days=cfg.watch_days)
+
+        pending = []
+        for item in self._state.watching():
+            if now - item.aired > deadline:
+                # За отведённый срок раздача либо появилась, либо её не будет:
+                # держать такую серию в списке — гонять запросы впустую.
+                log.info("Перестаю ждать раздачу: %s, %s серия", item.title, item.episode)
+                self._state.unwatch(item.key)
+            elif now >= item.aired:
+                pending.append(item)
+
+        if not pending:
+            self._state.save()
+            return 0
+
+        nyaa = torrents.nyaa_feed(self._web)
+        anilibria = torrents.anilibria_feed(self._web)
+        if not nyaa and not anilibria:
+            log.warning("Обе площадки молчат, пропускаю обход")
+            return 0
+
+        news = 0
+        for item in pending:
+            found = torrents.find(
+                item.titles, item.episode,
+                nyaa=nyaa, anilibria=anilibria, client=self._web,
+            )
+            unseen = [release for release in found if release.kind not in item.found]
+            if not unseen:
+                continue
+
+            for release in unseen:
+                self._state.mark_found(item.key, release.kind)
+            news += len(unseen)
+
+            log.info("Нашлась раздача: %s, %s серия — %s", item.title, item.episode,
+                     ", ".join(release.label for release in unseen))
+            self._vk.send_message(cfg.peer_id, render.release_alert(item.title, item.episode, unseen))
+
+            if COMPLETE <= set(item.found) | {release.kind for release in unseen}:
+                self._state.unwatch(item.key)
+
+        self._state.save()
+        return news
+
+    def check_due(self, moment: datetime) -> bool:
+        if not self._cfg.watch:
+            return False
+        if self._checked_at is None:
+            return True
+        return moment - self._checked_at >= timedelta(minutes=self._cfg.watch_every)
 
     # --- главный цикл ---
 
@@ -125,8 +214,12 @@ class Bot:
 
         while True:
             try:
-                if self.due(self.now()):
+                now = self.now()
+                if self.due(now):
                     self.send_digest()
+                if self.check_due(now):
+                    self._checked_at = now
+                    self.check_releases()
                 for update in poll.check():
                     self._handle(update)
             except KeyboardInterrupt:

@@ -1,13 +1,39 @@
-"""Память между запусками: за какой день дайджест уже ушёл."""
+"""Память между запусками: что уже отправлено и за какими сериями следим."""
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class Watched:
+    """Серия, для которой ещё ждём появления русской раздачи."""
+
+    key: str
+    title: str
+    romaji: str
+    episode: int
+    aired: datetime
+    found: list[str]
+
+    @property
+    def titles(self) -> list[str]:
+        return [name for name in (self.romaji, self.title) if name]
+
+    def as_dict(self) -> dict:
+        return {
+            "title": self.title,
+            "romaji": self.romaji,
+            "episode": self.episode,
+            "aired": self.aired.isoformat(),
+            "found": self.found,
+        }
 
 
 class State:
@@ -21,6 +47,10 @@ class State:
                 # Битый файл не повод падать: хуже дубля дайджеста только
                 # бот, который не запускается вообще.
                 log.warning("Состояние не прочиталось (%s), начинаем с нуля", exc)
+        if not isinstance(self._data.get("watch"), dict):
+            self._data["watch"] = {}
+
+    # --- дайджест ---
 
     @property
     def last_digest(self) -> date | None:
@@ -33,6 +63,41 @@ class State:
     def mark_digest(self, day: date) -> None:
         self._data["last_digest"] = day.isoformat()
         self.save()
+
+    # --- слежение за раздачами ---
+
+    def watching(self) -> list[Watched]:
+        out = []
+        for key, raw in dict(self._data["watch"]).items():
+            try:
+                out.append(Watched(
+                    key=key,
+                    title=raw["title"],
+                    romaji=raw.get("romaji", ""),
+                    episode=int(raw["episode"]),
+                    aired=datetime.fromisoformat(raw["aired"]),
+                    found=list(raw.get("found", [])),
+                ))
+            except (KeyError, TypeError, ValueError):
+                log.warning("Выбрасываю непонятную запись слежения: %s", key)
+                self._data["watch"].pop(key, None)
+        out.sort(key=lambda w: w.aired)
+        return out
+
+    def watch(self, key: str, *, title: str, romaji: str, episode: int, aired: datetime) -> bool:
+        """Ставит серию на слежение. False — такая уже в списке."""
+        if key in self._data["watch"]:
+            return False
+        self._data["watch"][key] = Watched(key, title, romaji, episode, aired, []).as_dict()
+        return True
+
+    def mark_found(self, key: str, kind: str) -> None:
+        entry = self._data["watch"].get(key)
+        if entry is not None and kind not in entry.setdefault("found", []):
+            entry["found"].append(kind)
+
+    def unwatch(self, key: str) -> None:
+        self._data["watch"].pop(key, None)
 
     def save(self) -> None:
         try:

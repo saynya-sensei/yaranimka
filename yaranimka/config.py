@@ -67,6 +67,13 @@ class Config:
     max_items: int = field(default_factory=lambda: _int("YARANIMKA_MAX_ITEMS", 20))
     show_links: bool = field(default_factory=lambda: _bool("YARANIMKA_LINKS", True))
 
+    # Слежение за русскими раздачами вышедших серий. Обе площадки берутся
+    # одной лентой на обход, поэтому получасовой интервал остаётся щадящим
+    # даже когда в списке два десятка серий.
+    watch: bool = field(default_factory=lambda: _bool("YARANIMKA_WATCH", True))
+    watch_every: int = field(default_factory=lambda: _int("YARANIMKA_WATCH_EVERY", 30))
+    watch_days: int = field(default_factory=lambda: _int("YARANIMKA_WATCH_DAYS", 3))
+
     # Дайджест уходит раз в сутки, и бот помнит, за какой день уже отправил:
     # без этого перезапуск процесса в 10:05 присылал бы его заново.
     state_path: str = field(default_factory=lambda: os.getenv("YARANIMKA_STATE_PATH", "").strip() or "state.json")
