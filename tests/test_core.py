@@ -282,29 +282,24 @@ class TestAdultFilter:
         assert shikimori.flag(adult=True) == "false"
         assert shikimori.flag(adult=False) == "true"
 
-    def test_search_shows_adult_by_default(self):
-        # Человек спросил конкретный тайтл — урезать выдачу молча неправильно.
+    @pytest.mark.parametrize("call", [
+        lambda c: shikimori.search("кайт", client=c),
+        lambda c: shikimori.fetch_calendar(c),
+        lambda c: shikimori.fetch_season("fall_2026", client=c),
+    ])
+    def test_nothing_is_filtered_by_default(self, call):
+        # Фильтр урезает выдачу молча — поиск «кайт» терял «Кайт — девочку-
+        # убийцу», ничем не показывая, что список неполон.
         client = FakeClient(FakeResponse(200, []))
-        shikimori.search("кайт", client=client)
+        call(client)
         assert client.params["censored"] == "false"
 
-    def test_search_can_be_filtered(self):
+    @pytest.mark.parametrize("call", [
+        lambda c: shikimori.search("кайт", client=c, adult=False),
+        lambda c: shikimori.fetch_calendar(c, adult=False),
+        lambda c: shikimori.fetch_season("fall_2026", client=c, adult=False),
+    ])
+    def test_filter_can_be_switched_back_on(self, call):
         client = FakeClient(FakeResponse(200, []))
-        shikimori.search("кайт", client=client, adult=False)
-        assert client.params["censored"] == "true"
-
-    def test_calendar_hides_adult_by_default(self):
-        # Дайджест прилетает всей беседе без спроса.
-        client = FakeClient(FakeResponse(200, []))
-        shikimori.fetch_calendar(client)
-        assert client.params["censored"] == "true"
-
-    def test_calendar_can_show_adult(self):
-        client = FakeClient(FakeResponse(200, []))
-        shikimori.fetch_calendar(client, adult=True)
-        assert client.params["censored"] == "false"
-
-    def test_season_follows_the_digest(self):
-        client = FakeClient(FakeResponse(200, []))
-        shikimori.fetch_season("fall_2026", client=client)
+        call(client)
         assert client.params["censored"] == "true"

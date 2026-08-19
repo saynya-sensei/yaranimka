@@ -149,7 +149,7 @@ def flag(adult: bool) -> str:
     return "false" if adult else "true"
 
 
-def fetch_calendar(client: httpx.Client | None = None, *, adult: bool = False) -> list[Episode]:
+def fetch_calendar(client: httpx.Client | None = None, *, adult: bool = True) -> list[Episode]:
     """Календарь ближайших серий: по одной ближайшей на каждый онгоинг.
 
     Именно так устроен эндпоинт — вторую и третью серию вперёд он не отдаёт,
@@ -267,7 +267,7 @@ class SeasonTitle:
 
 
 def fetch_season(code: str, limit: int = 5, client: httpx.Client | None = None,
-                 *, adult: bool = False) -> list[SeasonTitle]:
+                 *, adult: bool = True) -> list[SeasonTitle]:
     """Самые ожидаемые тайтлы сезона.
 
     Сортировка только по популярности: у ещё не вышедших тайтлов оценка нулевая,
@@ -309,12 +309,7 @@ def on_day(episodes: list[Episode], day: date, tz: timezone, *, min_score: float
 
 def search(query: str, limit: int = 5, client: httpx.Client | None = None,
            *, adult: bool = True) -> list[dict]:
-    """Поиск аниме по названию — для команды в беседе.
-
-    Взрослое по умолчанию показываем: человек спросил про конкретный тайтл,
-    и молча отдать ему урезанный список — значит соврать. В отличие от
-    дайджеста, который прилетает всей беседе без спроса.
-    """
+    """Поиск аниме по названию — для команды в беседе."""
     return _fetch(
         "/api/animes",
         {"search": query, "limit": max(1, min(limit, 10)), "censored": flag(adult)},

@@ -78,11 +78,9 @@ class Config:
     min_score: float = field(default_factory=lambda: _float("YARANIMKA_MIN_SCORE", 0.0))
     max_items: int = field(default_factory=lambda: _int("YARANIMKA_MAX_ITEMS", 20))
 
-    # Взрослое. В дайджесте по умолчанию скрыто: он прилетает всей беседе
-    # без спроса. В ответе на поиск — показано: человек спросил конкретный
-    # тайтл, и урезать ему выдачу молча неправильно.
-    adult: bool = field(default_factory=lambda: _bool("YARANIMKA_ADULT"))
-    adult_search: bool = field(default_factory=lambda: _bool("YARANIMKA_ADULT_SEARCH", True))
+    # Взрослое показываем везде: сообщество аниме, и молча урезать выдачу
+    # неправильно. Ноль возвращает фильтр Shikimori во все запросы.
+    adult: bool = field(default_factory=lambda: _bool("YARANIMKA_ADULT", True))
 
     # Новости аниме с форума Shikimori под списком серий. Ноль убирает блок.
     news_items: int = field(default_factory=lambda: _int("YARANIMKA_NEWS", 3))
