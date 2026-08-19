@@ -1,0 +1,57 @@
+"""Точка входа: python -m yaranimka [run|digest|today|tomorrow|week]."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from datetime import timedelta
+
+from .bot import Bot
+from .config import Config
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="yaranimka", description="Чат-бот сообщества ВКонтакте: онгоинги дня")
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        default="run",
+        choices=("run", "digest", "today", "tomorrow", "week"),
+        help="run — слушать беседу и слать дайджест по расписанию; "
+             "digest — отправить дайджест за сегодня и выйти; "
+             "today/tomorrow/week — показать текст в консоли, ничего не отправляя",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="ничего не отправлять, только логи")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    cfg = Config()
+    if args.dry_run:
+        cfg.dry_run = True
+
+    # Печать в консоль токена не требует — конфиг проверяем только для отправки.
+    if args.mode in ("run", "digest"):
+        cfg.check()
+
+    with Bot(cfg) as bot:
+        if args.mode == "run":
+            bot.run()
+        elif args.mode == "digest":
+            bot.send_digest()
+        elif args.mode == "today":
+            print(bot.digest())
+        elif args.mode == "tomorrow":
+            print(bot.digest(bot.now().date() + timedelta(days=1)))
+        elif args.mode == "week":
+            print(bot.answer("week", ""))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
