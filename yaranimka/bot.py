@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import date, datetime, timedelta
@@ -9,6 +10,7 @@ from datetime import date, datetime, timedelta
 import httpx
 
 from . import config, render, torrents
+from .__init__ import __version__
 from .commands import parse
 from .config import Config
 from .shikimori import (Episode, HEADERS, News, ShikimoriError,
@@ -158,7 +160,13 @@ class Bot:
         return None
 
     def _handle(self, update: dict) -> None:
+        if self._cfg.debug:
+            log.info("СОБЫТИЕ: %s", json.dumps(update, ensure_ascii=False))
+
         if update.get("type") != "message_new":
+            # Молчать тут нельзя: если ВКонтакте пришлёт выход из беседы
+            # отдельным типом события, без этой строки мы никогда не узнаем.
+            log.info("Событие %s пропущено", update.get("type"))
             return
 
         obj = update.get("object") or {}
@@ -199,6 +207,7 @@ class Bot:
         action = message.get("action") or {}
         kind = action.get("type")
         peer_id = int(message.get("peer_id") or cfg.peer_id)
+        log.info("Событие беседы %s: %s", kind, json.dumps(action, ensure_ascii=False))
 
         try:
             member = int(action.get("member_id") or 0)
@@ -358,8 +367,19 @@ class Bot:
     # --- главный цикл ---
 
     def run(self) -> None:
-        poll = LongPoll(self._vk, self._cfg.group_id)
-        log.info("Бот слушает беседу %s", self._cfg.peer_id)
+        cfg = self._cfg
+        poll = LongPoll(self._vk, cfg.group_id)
+
+        # По этой строке видно, что именно крутится на сервере: без неё
+        # «бот не реагирует» и «на сервере старая сборка» неразличимы.
+        def onoff(flag: bool) -> str:
+            return "вкл" if flag else "выкл"
+
+        log.info(
+            "yaranimka %s слушает беседу %s — команды %s, охрана %s, раздачи %s, дайджест в %s",
+            __version__, cfg.peer_id, onoff(cfg.commands),
+            onoff(cfg.leave_notify or cfg.leave_kick), onoff(cfg.watch), cfg.daily_at,
+        )
 
         while True:
             try:

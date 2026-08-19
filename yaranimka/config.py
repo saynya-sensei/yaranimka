@@ -85,6 +85,10 @@ class Config:
     season: bool = field(default_factory=lambda: _bool("YARANIMKA_SEASON", True))
     season_top: int = field(default_factory=lambda: _int("YARANIMKA_SEASON_TOP", 5))
 
+    # Подробный лог: каждое событие Long Poll как есть. Нужен, когда бот
+    # молчит и непонятно, не пришло событие или пришло непонятым.
+    debug: bool = field(default_factory=lambda: _bool("YARANIMKA_DEBUG"))
+
     # Ответы на команды в беседе. Ноль делает бота молчаливым: он продолжает
     # присылать дайджест и следить за беседой, но на сообщения не отвечает.
     commands: bool = field(default_factory=lambda: _bool("YARANIMKA_COMMANDS", True))
