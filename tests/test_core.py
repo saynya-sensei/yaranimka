@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+import httpx
 import pytest
 
-from yaranimka import render
+from yaranimka import render, shikimori
 from yaranimka.commands import parse
 from yaranimka.config import chat_peer_id, parse_time
 from yaranimka.shikimori import Episode, _parse, on_day
@@ -159,3 +160,65 @@ class TestSplit:
     def test_splits_unbreakable_line(self):
         parts = split_message("я" * 500, limit=100)
         assert len(parts) == 5
+
+
+class FakeResponse:
+    def __init__(self, status: int, payload=None):
+        self.status_code = status
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class FakeClient:
+    """Клиент по сценарию: исключение — обрыв, ответ — ответ."""
+
+    def __init__(self, *script):
+        self.script = list(script)
+        self.calls = 0
+
+    def get(self, url, params=None, headers=None):
+        self.calls += 1
+        step = self.script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+
+class TestRetries:
+    @pytest.fixture(autouse=True)
+    def no_waiting(self, monkeypatch):
+        monkeypatch.setattr(shikimori.time, "sleep", lambda _: None)
+
+    def test_survives_a_single_timeout(self):
+        # Ровно этот сбой и уронил запуск: WinError 10060 на пути к Shikimori.
+        client = FakeClient(httpx.ConnectTimeout("таймаут"), FakeResponse(200, []))
+        assert shikimori.fetch_calendar(client) == []
+        assert client.calls == 2
+
+    def test_gives_up_after_three(self):
+        client = FakeClient(*[httpx.ConnectTimeout("таймаут")] * 3)
+        with pytest.raises(shikimori.ShikimoriError, match="недоступен"):
+            shikimori.fetch_calendar(client)
+        assert client.calls == 3
+
+    def test_server_error_is_retried(self):
+        client = FakeClient(FakeResponse(502), FakeResponse(200, []))
+        assert shikimori.fetch_calendar(client) == []
+        assert client.calls == 2
+
+    def test_client_error_is_not_retried(self):
+        # 404 от повторов не поправится, ждать бессмысленно.
+        client = FakeClient(FakeResponse(404))
+        with pytest.raises(shikimori.ShikimoriError, match="404"):
+            shikimori.fetch_calendar(client)
+        assert client.calls == 1
+
+    def test_unexpected_shape_is_an_error(self):
+        with pytest.raises(shikimori.ShikimoriError, match="формате"):
+            shikimori.fetch_calendar(FakeClient(FakeResponse(200, {"oops": 1})))
+
+    def test_search_retries_too(self):
+        client = FakeClient(httpx.ReadTimeout("таймаут"), FakeResponse(200, [{"id": 1}]))
+        assert shikimori.search("клев", client=client) == [{"id": 1}]

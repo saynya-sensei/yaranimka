@@ -9,6 +9,7 @@ from datetime import timedelta
 
 from .bot import Bot
 from .config import Config
+from .shikimori import ShikimoriError
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,6 +42,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode in ("run", "digest", "check"):
         cfg.check()
 
+    try:
+        return _run(args, cfg)
+    except ShikimoriError as exc:
+        # Разовый режим завершается по-человечески: трейсбек здесь ничего
+        # не объясняет, а в планировщике только засоряет лог.
+        print(f"Не получилось: {exc}", file=sys.stderr)
+        return 1
+
+
+def _run(args, cfg: Config) -> int:
     with Bot(cfg) as bot:
         if args.mode == "run":
             bot.run()
