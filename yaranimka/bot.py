@@ -155,7 +155,7 @@ class Bot:
                 if not argument:
                     return "Что искать? Например: аниме врата стейнса"
                 return render.search_results(
-                    argument, search(argument, client=self._web, adult=cfg.adult))
+                    argument, search(argument, client=self._web, adult=cfg.adult_search))
         except ShikimoriError as exc:
             log.warning("Shikimori не ответил: %s", exc)
             return BROKEN

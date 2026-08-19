@@ -282,24 +282,29 @@ class TestAdultFilter:
         assert shikimori.flag(adult=True) == "false"
         assert shikimori.flag(adult=False) == "true"
 
-    @pytest.mark.parametrize("call", [
-        lambda c: shikimori.search("кайт", client=c),
-        lambda c: shikimori.fetch_calendar(c),
-        lambda c: shikimori.fetch_season("fall_2026", client=c),
-    ])
-    def test_nothing_is_filtered_by_default(self, call):
+    def test_search_shows_adult_by_default(self):
         # Фильтр урезает выдачу молча — поиск «кайт» терял «Кайт — девочку-
         # убийцу», ничем не показывая, что список неполон.
         client = FakeClient(FakeResponse(200, []))
-        call(client)
+        shikimori.search("кайт", client=client)
         assert client.params["censored"] == "false"
 
     @pytest.mark.parametrize("call", [
-        lambda c: shikimori.search("кайт", client=c, adult=False),
-        lambda c: shikimori.fetch_calendar(c, adult=False),
-        lambda c: shikimori.fetch_season("fall_2026", client=c, adult=False),
+        lambda c: shikimori.fetch_calendar(c),
+        lambda c: shikimori.fetch_season("fall_2026", client=c),
     ])
-    def test_filter_can_be_switched_back_on(self, call):
+    def test_digest_hides_adult_by_default(self, call):
+        # Утренний пост приходит всей беседе без спроса.
         client = FakeClient(FakeResponse(200, []))
         call(client)
         assert client.params["censored"] == "true"
+
+    @pytest.mark.parametrize("call,expected", [
+        (lambda c: shikimori.search("кайт", client=c, adult=False), "true"),
+        (lambda c: shikimori.fetch_calendar(c, adult=True), "false"),
+        (lambda c: shikimori.fetch_season("fall_2026", client=c, adult=True), "false"),
+    ])
+    def test_both_sides_can_be_flipped(self, call, expected):
+        client = FakeClient(FakeResponse(200, []))
+        call(client)
+        assert client.params["censored"] == expected
