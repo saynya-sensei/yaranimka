@@ -72,6 +72,10 @@ class Config:
     # Новости аниме с форума Shikimori под списком серий. Ноль убирает блок.
     news_items: int = field(default_factory=lambda: _int("YARANIMKA_NEWS", 3))
 
+    # Сезонные напоминания: последняя неделя сезона и старт нового.
+    season: bool = field(default_factory=lambda: _bool("YARANIMKA_SEASON", True))
+    season_top: int = field(default_factory=lambda: _int("YARANIMKA_SEASON_TOP", 5))
+
     # Слежение за русскими раздачами вышедших серий. Обе площадки берутся
     # одной лентой на обход, поэтому получасовой интервал остаётся щадящим
     # даже когда в списке два десятка серий.

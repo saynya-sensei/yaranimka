@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import date, timezone
 
 from . import shikimori
-from .shikimori import Episode, News
+from .shikimori import Episode, News, SeasonTitle
 from .state import Watched
 from .torrents import Release
 from .vk import MAX_LEN
@@ -62,6 +62,27 @@ def greeting(hour: int) -> str:
     return "Доброй ночи"
 
 
+def season_farewell(days_left: int) -> str:
+    """Напоминание в последнюю неделю сезона."""
+    left = "неделя" if days_left == 7 else f"{days_left} {plural(days_left, 'день', 'дня', 'дней')}"
+    verb = "осталась" if days_left == 7 else plural(days_left, "остался", "осталось", "осталось")
+    return (f"⏳ У этого аниме-сезона {verb} {left} — проверьте торренты "
+            f"на наличие завершившихся тайтлов!")
+
+
+def season_opening(titles: Sequence[SeasonTitle], name: str, year: int) -> str:
+    """Приветствие нового сезона с самыми ожидаемыми тайтлами."""
+    head = f"🎬 Стартовал новый аниме-сезон — {name} {year}!"
+    if not titles:
+        return head
+
+    lines = []
+    for item in titles:
+        when = f", с {item.starts.day} {MONTHS[item.starts.month - 1]}" if item.starts else ""
+        lines.append(f"• {item.title}{when}\n  {item.url}")
+    return f"{head}\n\n" + "\n".join(lines)
+
+
 def _line(ep: Episode, tz: timezone, releases: Sequence[Release] = ()) -> str:
     episode = f"{ep.episode} серия" if ep.episode else "новая серия"
     parts = [f"• {ep.title} — {episode}, {ep.local_time(tz)}"]
@@ -79,6 +100,7 @@ def daily_digest(
     max_items: int = 20,
     releases: dict[str, Sequence[Release]] | None = None,
     news: Sequence[News] = (),
+    season: str = "",
     hour: int | None = None,
     updated: str | None = None,
     limit: int = MAX_LEN,
@@ -87,8 +109,8 @@ def daily_digest(
 
     Единственная ссылка в строке — на раздачу, и появляется она только когда
     раздача есть. Сообщение одно и правится на месте, резать его на части
-    нельзя, поэтому при переполнении сначала уходят новости, а потом
-    сокращается список: расписание тут главное, новости — довесок.
+    нельзя, поэтому при переполнении жертвуем по очереди: сначала новости,
+    потом сезонный блок, и только в последнюю очередь режем само расписание.
     """
     hello = f"{greeting(hour if hour is not None else 12)}, любимые накамычи! 🌸"
     when = human_date(day, weekday=True).capitalize()
@@ -102,7 +124,7 @@ def daily_digest(
 
     found = releases or {}
 
-    def build(count: int, with_news: bool) -> str:
+    def build(count: int, with_news: bool, with_season: bool) -> str:
         text = head
         if episodes:
             body = "\n".join(_line(ep, tz, found.get(ep.key, ())) for ep in episodes[:count])
@@ -110,6 +132,8 @@ def daily_digest(
             hidden = len(episodes) - count
             if hidden > 0:
                 text += f"\n\n…и ещё {hidden} {plural(hidden, 'серия', 'серии', 'серий')}"
+        if with_season and season:
+            text += f"\n\n{season}"
         if with_news and news:
             notes = "\n".join(f"• {item.title}\n  {item.url}" for item in news)
             text += f"\n\n📰 Что нового в аниме\n\n{notes}"
@@ -119,14 +143,15 @@ def daily_digest(
 
     count = max(1, min(max_items, len(episodes))) if episodes else 0
 
-    text = build(count, True)
-    if len(text) <= limit:
-        return text
+    # Порядок жертв: новости, затем сезонный блок, затем сам список.
+    for with_news, with_season in ((True, True), (False, True), (False, False)):
+        text = build(count, with_news, with_season)
+        if len(text) <= limit:
+            return text
 
-    text = build(count, False)
     while len(text) > limit and count > 1:
         count -= 1
-        text = build(count, False)
+        text = build(count, False, False)
     return text[:limit]
 
 

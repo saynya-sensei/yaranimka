@@ -81,35 +81,46 @@ class State:
         except ValueError:
             return None
 
+    def _today_digest(self) -> dict:
+        """Снимок последнего дайджеста, если он относится к нему же.
+
+        После смены дня старый снимок нам чужой: править вчерашнее сообщение
+        уже нельзя, и подставлять из него блоки в новое — тем более.
+        """
+        digest = self._data.get("digest") or {}
+        day = self.last_digest.isoformat() if self.last_digest else None
+        return digest if digest.get("day") == day else {}
+
     @property
     def digest_message(self) -> int | None:
         """Идентификатор отправленного сегодня сообщения — его и правим."""
-        digest = self._data.get("digest") or {}
-        if digest.get("day") != (self.last_digest.isoformat() if self.last_digest else None):
-            return None
-        message_id = digest.get("message_id")
+        message_id = self._today_digest().get("message_id")
         return int(message_id) if message_id else None
 
     @property
     def digest_news(self) -> list[News]:
         """Новости того же снимка: при правке сообщения они меняться не должны."""
-        digest = self._data.get("digest") or {}
-        if digest.get("day") != (self.last_digest.isoformat() if self.last_digest else None):
-            return []
         out = []
-        for raw in digest.get("news", []):
+        for raw in self._today_digest().get("news", []):
             try:
                 out.append(News.from_dict(raw))
             except (KeyError, TypeError, ValueError):
                 continue
         return out
 
-    def mark_digest(self, day: date, message_id: int | None, news: list[News] | None = None) -> None:
+    @property
+    def digest_season(self) -> str:
+        """Сезонный блок того же снимка — он тоже не должен меняться в правках."""
+        return str(self._today_digest().get("season") or "")
+
+    def mark_digest(self, day: date, message_id: int | None,
+                    news: list[News] | None = None, season: str = "") -> None:
         self._data["last_digest"] = day.isoformat()
         self._data["digest"] = {
             "day": day.isoformat(),
             "message_id": message_id,
             "news": [item.as_dict() for item in (news or [])],
+            "season": season,
         }
 
     # --- строки дневного списка ---

@@ -12,7 +12,8 @@ from . import render, torrents
 from .commands import parse
 from .config import Config
 from .shikimori import (Episode, HEADERS, News, ShikimoriError,
-                        fetch_calendar, fetch_news, on_day, search)
+                        days_until_next_season, fetch_calendar, fetch_news,
+                        fetch_season, on_day, search, season_of, season_start)
 from .state import State
 from .vk import LongPoll, VKClient
 
@@ -22,6 +23,13 @@ BROKEN = "Расписание сейчас не отвечает, попроб�
 
 # Нашлись и озвучка, и субтитры — ждать больше нечего.
 COMPLETE = {torrents.DUB, torrents.SUB}
+
+# Сколько дней держать поздравление с новым сезоном. Один день был бы честнее,
+# но пропущенный запуск стоил бы тогда целого квартала ожидания.
+OPENING_DAYS = 3
+
+# За сколько дней до смены сезона начинать напоминать про торренты.
+FAREWELL_DAYS = 7
 
 
 class Bot:
@@ -72,17 +80,42 @@ class Bot:
         else:
             episodes, releases = self.episodes_on(day), {}
 
-        # Новости берём из снимка: при правке сообщения они меняться не должны.
-        # Снимка нет — значит это предпросмотр, и их можно запросить свежими.
-        stored = self._state.digest_news if day == self._state.last_digest else []
-        news = stored or (self.news() if day == today and not rows else [])
+        # Новости и сезонный блок берём из снимка: при правке сообщения они
+        # меняться не должны. Снимка нет — значит это предпросмотр, и всё
+        # можно запросить свежим.
+        mine = day == self._state.last_digest
+        preview = day == today and not rows
+        news = (self._state.digest_news if mine else []) or (self.news() if preview else [])
+        season = (self._state.digest_season if mine else "") or (self.season(day) if preview else "")
 
         return render.daily_digest(
             episodes, day, cfg.tz,
             today=today, max_items=cfg.max_items,
-            releases=releases, news=news,
+            releases=releases, news=news, season=season,
             hour=self.now().hour, updated=updated,
         )
+
+    def season(self, day: date) -> str:
+        """Сезонный блок: проводы уходящего сезона или встреча нового.
+
+        Оба события редкие — четыре раза в год, — поэтому запрос к Shikimori
+        уходит только в эти дни, а не при каждом дайджесте.
+        """
+        cfg = self._cfg
+        if not cfg.season:
+            return ""
+
+        left = days_until_next_season(day)
+        if 1 <= left <= FAREWELL_DAYS:
+            return render.season_farewell(left)
+
+        if (day - season_start(day)).days < OPENING_DAYS:
+            code, name, year = season_of(day)
+            try:
+                return render.season_opening(fetch_season(code, cfg.season_top, self._web), name, year)
+            except ShikimoriError as exc:
+                log.warning("Сезонная подборка не пришла: %s", exc)
+        return ""
 
     def news(self) -> list[News]:
         """Новости — довесок к дайджесту, и падать из-за них нельзя."""
@@ -155,12 +188,12 @@ class Bot:
         today = self.now().date()
         day = day or today
         episodes = self.episodes_on(day)
-        news = self.news()
+        news, season = self.news(), self.season(day)
 
         message_id = self._vk.send_message(cfg.peer_id, render.daily_digest(
             episodes, day, cfg.tz,
             today=today, max_items=cfg.max_items,
-            news=news, hour=self.now().hour,
+            news=news, season=season, hour=self.now().hour,
         ))
 
         # Дневной список сохраняем целиком: править сообщение потом будет
@@ -168,7 +201,7 @@ class Bot:
         if cfg.watch:
             self.remember(episodes, day)
         if remember:
-            self._state.mark_digest(day, message_id, news)
+            self._state.mark_digest(day, message_id, news, season)
         self._state.save()
         log.info("Дайджест за %s отправлен (сообщение %s)", day, message_id)
 

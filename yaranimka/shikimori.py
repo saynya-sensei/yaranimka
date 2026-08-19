@@ -214,6 +214,88 @@ def fetch_news(limit: int = 3, client: httpx.Client | None = None, max_age_days:
     return out
 
 
+# Аниме-сезоны идут кварталами: зима начинается в январе, весна в апреле,
+# лето в июле, осень в октябре.
+SEASONS = ((1, "winter", "зима"), (4, "spring", "весна"), (7, "summer", "лето"), (10, "fall", "осень"))
+
+
+def season_of(day: date) -> tuple[str, str, int]:
+    """Сезон, которому принадлежит дата: код, русское имя, год."""
+    month, name, russian = max((s for s in SEASONS if s[0] <= day.month), key=lambda s: s[0])
+    return f"{name}_{day.year}", russian, day.year
+
+
+def season_start(day: date) -> date:
+    """Первый день сезона, в котором находится дата."""
+    month = max(s[0] for s in SEASONS if s[0] <= day.month)
+    return date(day.year, month, 1)
+
+
+def next_season_start(day: date) -> date:
+    """Первый день следующего сезона."""
+    later = [s[0] for s in SEASONS if s[0] > day.month]
+    return date(day.year, min(later), 1) if later else date(day.year + 1, 1, 1)
+
+
+def days_until_next_season(day: date) -> int:
+    return (next_season_start(day) - day).days
+
+
+@dataclass(frozen=True)
+class SeasonTitle:
+    """Тайтл из сезонной подборки."""
+
+    title: str
+    url: str
+    kind: str
+    starts: date | None
+
+    def as_dict(self) -> dict:
+        return {"title": self.title, "url": self.url, "kind": self.kind,
+                "starts": self.starts.isoformat() if self.starts else None}
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "SeasonTitle":
+        starts = raw.get("starts")
+        return cls(str(raw["title"]), str(raw["url"]), str(raw.get("kind", "")),
+                   date.fromisoformat(starts) if starts else None)
+
+
+def fetch_season(code: str, limit: int = 5, client: httpx.Client | None = None) -> list[SeasonTitle]:
+    """Самые ожидаемые тайтлы сезона.
+
+    Сортировка только по популярности: у ещё не вышедших тайтлов оценка нулевая,
+    и ранжировать их по ней бессмысленно. Популярность же показывает именно
+    ожидаемость — сколько людей уже добавили тайтл в списки.
+    """
+    if limit <= 0:
+        return []
+
+    data = _fetch(
+        "/api/animes",
+        {"season": code, "order": "popularity", "limit": max(1, min(limit, 20)), "censored": "true"},
+        client,
+    )
+
+    out = []
+    for anime in data:
+        title = (anime.get("russian") or anime.get("name") or "").strip()
+        if not title:
+            continue
+        raw_start = anime.get("aired_on")
+        try:
+            starts = date.fromisoformat(raw_start) if raw_start else None
+        except ValueError:
+            starts = None
+        out.append(SeasonTitle(
+            title=title,
+            url=f"{API}{anime.get('url', '')}",
+            kind=str(anime.get("kind") or ""),
+            starts=starts,
+        ))
+    return out[:limit]
+
+
 def on_day(episodes: list[Episode], day: date, tz: timezone, *, min_score: float = 0.0) -> list[Episode]:
     """Серии, выходящие в указанный день по местному времени."""
     return [ep for ep in episodes if ep.local_date(tz) == day and ep.score >= min_score]
