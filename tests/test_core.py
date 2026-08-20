@@ -9,7 +9,7 @@ import pytest
 
 from yaranimka import render, shikimori
 from yaranimka.commands import parse
-from yaranimka.config import chat_peer_id, parse_time
+from yaranimka.config import Config, chat_peer_id, parse_time
 from yaranimka.shikimori import Episode, _parse, on_day
 from yaranimka.vk import split_message
 
@@ -308,3 +308,15 @@ class TestAdultFilter:
         client = FakeClient(FakeResponse(200, []))
         call(client)
         assert client.params["censored"] == expected
+
+
+class TestTimezone:
+    def test_default_is_the_chat_timezone(self, monkeypatch):
+        # Беседа живёт по Ярославлю, то есть по Москве: UTC+3. При UTC+4
+        # пост в 10:00 выходил в чате в 09:00.
+        monkeypatch.setenv("YARANIMKA_TZ_OFFSET", "")
+        assert Config().tz_offset == 3
+
+    def test_offset_is_taken_from_the_environment(self, monkeypatch):
+        monkeypatch.setenv("YARANIMKA_TZ_OFFSET", "4")
+        assert Config().tz_offset == 4

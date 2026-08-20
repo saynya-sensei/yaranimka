@@ -68,10 +68,13 @@ class Config:
     group_id: int = field(default_factory=lambda: _int("VK_GROUP_ID", 0))
     chat_id: str = field(default_factory=lambda: os.getenv("VK_CHAT_ID", "").strip())
 
-    # Во сколько по местному времени уходит дайджест и какой это часовой пояс.
-    # Смещение в часах от UTC: 4 — Тбилиси, 3 — Москва.
+    # Во сколько уходит дайджест — по времени беседы, а не сервера.
     daily_at: str = field(default_factory=lambda: os.getenv("YARANIMKA_DAILY_AT", "").strip() or "10:00")
-    tz_offset: int = field(default_factory=lambda: _int("YARANIMKA_TZ_OFFSET", 4))
+
+    # Часовой пояс беседы в часах от UTC: 3 — Москва и Ярославль, 4 — Тбилиси.
+    # Задаёт не только час рассылки, но и время выхода серий в строках
+    # расписания, поэтому ошибка тут тихо сдвигает весь пост.
+    tz_offset: int = field(default_factory=lambda: _int("YARANIMKA_TZ_OFFSET", 3))
 
     # Календарь Shikimori отдаёт всё подряд, включая проходные тайтлы.
     # Порог оценки отсекает их, ноль выключает фильтр целиком.
