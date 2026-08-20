@@ -115,6 +115,11 @@ class Config:
     watch_every: int = field(default_factory=lambda: _int("YARANIMKA_WATCH_EVERY", 30))
     watch_days: int = field(default_factory=lambda: _int("YARANIMKA_WATCH_DAYS", 3))
 
+    # Сколько суток помнить найденное. Больше срока поиска: когда к свежей
+    # серии раздачи ещё нет, бот показывает раздачу предыдущей — а она
+    # у недельных тайтлов вышла семь дней назад.
+    keep_days: int = field(default_factory=lambda: _int("YARANIMKA_KEEP_DAYS", 10))
+
     # Дайджест уходит раз в сутки, и бот помнит, за какой день уже отправил:
     # без этого перезапуск процесса в 10:05 присылал бы его заново.
     state_path: str = field(default_factory=lambda: os.getenv("YARANIMKA_STATE_PATH", "").strip() or "state.json")

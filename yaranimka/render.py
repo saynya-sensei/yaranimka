@@ -203,11 +203,34 @@ def week_digest(
     return "🌸 Ближайшая неделя\n\n" + "\n\n".join(blocks)
 
 
-def watch_status(watching: list[Watched], tz: timezone) -> str:
-    """Ответ на команду: что бот отслеживает и что уже нашёл.
+def _release_line(release: Release) -> str:
+    facts = [release.source]
+    if release.seeders is not None:
+        facts.append(f"{release.seeders} {plural(release.seeders, 'сид', 'сида', 'сидов')}")
+    if release.size:
+        facts.append(release.size)
+    return f"  {release.icon} {release.label} · {' · '.join(facts)} ({release.url})"
+
+
+def previous_release(item: Watched, history: Sequence[Watched]) -> Watched | None:
+    """Самая свежая серия того же тайтла, к которой раздача уже есть."""
+    earlier = [
+        other for other in history
+        if other.anime_id == item.anime_id and other.episode < item.episode and other.releases
+    ]
+    return max(earlier, key=lambda other: other.episode) if earlier else None
+
+
+def watch_status(watching: list[Watched], history: Sequence[Watched] = ()) -> str:
+    """Ответ на команду: какие торренты доступны к сегодняшним сериям.
 
     Время выхода серии тут не печатается: оно уже есть в дневном списке,
     а здесь спрашивают про торренты, и в скобках полезнее ссылка на них.
+
+    Если к свежей серии раздачи ещё нет, показываем предыдущую: ждать
+    вечера ради ссылки не надо, а посмотреть с прошлой серии — можно
+    прямо сейчас. `history` для этого и нужна: там записи прошлых дней,
+    которые в сам список не попадают.
     """
     if not watching:
         return "📦 Сейчас ничего не отслеживаю — свежих серий в списке нет."
@@ -215,15 +238,17 @@ def watch_status(watching: list[Watched], tz: timezone) -> str:
     lines = []
     for item in watching:
         lines.append(f"• {item.title}, {item.episode} серия")
-        if not item.releases:
+
+        if item.releases:
+            lines.extend(_release_line(release) for release in item.releases)
+            continue
+
+        earlier = previous_release(item, history)
+        if earlier:
+            lines.append(f"  свежей пока нет, последняя доступная — {earlier.episode} серия:")
+            lines.extend(_release_line(release) for release in earlier.releases)
+        else:
             lines.append("  пока ничего")
-        for release in item.releases:
-            facts = [release.source]
-            if release.seeders is not None:
-                facts.append(f"{release.seeders} {plural(release.seeders, 'сид', 'сида', 'сидов')}")
-            if release.size:
-                facts.append(release.size)
-            lines.append(f"  {release.icon} {release.label} · {' · '.join(facts)} ({release.url})")
 
     return "📦 Доступные торренты\n\n" + "\n".join(lines)
 

@@ -150,7 +150,10 @@ class Bot:
                     self.now().date(), cfg.tz, max_items=cfg.max_items,
                 )
             if command == "releases":
-                return render.watch_status(self._state.watching(), cfg.tz)
+                # Показываем сегодняшний список, а записи прошлых дней идут
+                # только в подсказку «последняя доступная — N серия».
+                day = self._state.last_digest or self.now().date()
+                return render.watch_status(self._state.watching(day), self._state.watching())
             if command == "search":
                 if not argument:
                     return "Что искать? Например: аниме врата стейнса"
@@ -306,15 +309,20 @@ class Bot:
     def check_releases(self) -> int:
         """Один обход раздач. Возвращает число новых находок."""
         now = self.now()
-        deadline = timedelta(days=self._cfg.watch_days)
+        cfg = self._cfg
+        searching = timedelta(days=cfg.watch_days)
+        # Помним дольше, чем ищем: найденное нужно ещё и как подсказка
+        # «раздачи к свежей серии нет, вот предыдущая».
+        keeping = timedelta(days=max(cfg.keep_days, cfg.watch_days))
 
         pending = []
         for item in self._state.watching():
-            if now - item.aired > deadline:
-                # За отведённый срок раздача либо появилась, либо её не будет,
-                # а сообщение того дня всё равно уже не поправить.
+            age = now - item.aired
+            if age > keeping:
                 self._state.unwatch(item.key)
-            elif now >= item.aired and not COMPLETE <= item.kinds:
+            elif age <= searching and now >= item.aired and not COMPLETE <= item.kinds:
+                # За срок поиска раздача либо появилась, либо её не будет,
+                # а сообщение того дня всё равно уже не поправить.
                 pending.append(item)
 
         if not pending:

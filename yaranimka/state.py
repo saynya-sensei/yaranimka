@@ -37,6 +37,11 @@ class Watched:
         return [name for name in (self.romaji, self.title) if name]
 
     @property
+    def anime_id(self) -> str:
+        """Тайтл без номера серии — по нему ищется предыдущая серия."""
+        return self.key.split(":")[0]
+
+    @property
     def kinds(self) -> set[str]:
         return {release.kind for release in self.releases}
 

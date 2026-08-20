@@ -128,7 +128,7 @@ class TestStatusCommand:
         state.watch(episode(anime_id=1, num=9, title="Тройной шторм", hour=19), DAY)
         state.add_release("62513:7", DUB_RELEASE)
 
-        text = render.watch_status(state.watching(DAY), TZ)
+        text = render.watch_status(state.watching(DAY))
         assert text.startswith("📦 Доступные торренты")
         assert "• Клеватесс 2, 7 серия" in text
         # В скобках ссылка на торрент, а не время выхода: оно уже есть
@@ -139,10 +139,72 @@ class TestStatusCommand:
     def test_no_air_time_in_the_list(self, tmp_path):
         state = State(tmp_path / "state.json")
         state.watch(episode(), DAY)
-        assert "19.08" not in render.watch_status(state.watching(DAY), TZ)
+        assert "19.08" not in render.watch_status(state.watching(DAY))
 
     def test_status_when_empty(self):
-        assert "ничего не отслеживаю" in render.watch_status([], TZ)
+        assert "ничего не отслеживаю" in render.watch_status([])
+
+
+class TestPreviousEpisode:
+    """К свежей серии раздачи ещё нет — показываем предыдущую."""
+
+    def state_with_history(self, tmp_path) -> State:
+        state = State(tmp_path / "state.json")
+        # Прошлая неделя: раздача нашлась. Сегодня: серия только вышла.
+        state.watch(episode(num=6), DAY - timedelta(days=7))
+        state.add_release("62513:6", DUB_RELEASE)
+        state.watch(episode(num=7), DAY)
+        return state
+
+    def test_falls_back_to_the_previous_one(self, tmp_path):
+        state = self.state_with_history(tmp_path)
+        text = render.watch_status(state.watching(DAY), state.watching())
+
+        assert "• Клеватесс 2, 7 серия" in text
+        assert "свежей пока нет, последняя доступная — 6 серия:" in text
+        assert DUB_RELEASE.url in text
+
+    def test_old_episode_is_not_listed_on_its_own(self, tmp_path):
+        state = self.state_with_history(tmp_path)
+        text = render.watch_status(state.watching(DAY), state.watching())
+        # Прошлая серия — подсказка, а не отдельная строка списка.
+        assert text.count("• Клеватесс 2") == 1
+
+    def test_fresh_release_wins_over_history(self, tmp_path):
+        state = self.state_with_history(tmp_path)
+        state.add_release("62513:7", SUB_RELEASE)
+        text = render.watch_status(state.watching(DAY), state.watching())
+
+        assert "последняя доступная" not in text
+        assert SUB_RELEASE.url in text
+
+    def test_history_of_another_title_is_not_borrowed(self, tmp_path):
+        state = State(tmp_path / "state.json")
+        state.watch(episode(anime_id=1, num=6, title="Другой тайтл"), DAY - timedelta(days=7))
+        state.add_release("1:6", DUB_RELEASE)
+        state.watch(episode(num=7), DAY)
+
+        text = render.watch_status(state.watching(DAY), state.watching())
+        assert "• Клеватесс 2, 7 серия\n  пока ничего" in text
+
+    def test_later_episode_is_not_offered_as_previous(self, tmp_path):
+        state = State(tmp_path / "state.json")
+        state.watch(episode(num=8), DAY - timedelta(days=1))
+        state.add_release("62513:8", DUB_RELEASE)
+        state.watch(episode(num=7), DAY)
+
+        text = render.watch_status(state.watching(DAY), state.watching())
+        assert "последняя доступная" not in text
+
+    def test_the_newest_of_several_is_taken(self, tmp_path):
+        state = State(tmp_path / "state.json")
+        for num in (4, 5, 6):
+            state.watch(episode(num=num), DAY - timedelta(days=7))
+            state.add_release(f"62513:{num}", DUB_RELEASE)
+        state.watch(episode(num=7), DAY)
+
+        text = render.watch_status(state.watching(DAY), state.watching())
+        assert "последняя доступная — 6 серия" in text
 
 
 class TestNews:
