@@ -26,7 +26,7 @@ HELP = """🌸 Я подсказываю, что из онгоингов вых�
 • /завтра — что выходит завтра
 • /неделя — ближайшие серии на семь дней
 • /аниме <название> — найти тайтл на Shikimori
-• /раздачи — за какими сериями слежу и что уже нашлось
+• /раздачи — доступные торренты к вышедшим сериям
 • /помощь — это сообщение
 
 Второй раз за день писать не буду: как выйдет серия, ищу русскую озвучку и субтитры и дописываю ссылки прямо в утреннее сообщение.
@@ -204,18 +204,17 @@ def week_digest(
 
 
 def watch_status(watching: list[Watched], tz: timezone) -> str:
-    """Ответ на команду: что бот отслеживает и с какими подробностями нашёл.
+    """Ответ на команду: что бот отслеживает и что уже нашёл.
 
-    В сам дайджест такие детали не помещаются — там только ссылка, — а тут
-    места хватает на источник, число сидов и размер.
+    Время выхода серии тут не печатается: оно уже есть в дневном списке,
+    а здесь спрашивают про торренты, и в скобках полезнее ссылка на них.
     """
     if not watching:
         return "📦 Сейчас ничего не отслеживаю — свежих серий в списке нет."
 
     lines = []
     for item in watching:
-        when = item.aired.astimezone(tz).strftime("%d.%m %H:%M")
-        lines.append(f"• {item.title}, {item.episode} серия ({when})")
+        lines.append(f"• {item.title}, {item.episode} серия")
         if not item.releases:
             lines.append("  пока ничего")
         for release in item.releases:
@@ -224,10 +223,9 @@ def watch_status(watching: list[Watched], tz: timezone) -> str:
                 facts.append(f"{release.seeders} {plural(release.seeders, 'сид', 'сида', 'сидов')}")
             if release.size:
                 facts.append(release.size)
-            lines.append(f"  {release.icon} {release.label} · {' · '.join(facts)}")
-            lines.append(f"  {release.url}")
+            lines.append(f"  {release.icon} {release.label} · {' · '.join(facts)} ({release.url})")
 
-    return "📦 Русские раздачи\n\n" + "\n".join(lines)
+    return "📦 Доступные торренты\n\n" + "\n".join(lines)
 
 
 def search_results(query: str, animes: list[dict]) -> str:

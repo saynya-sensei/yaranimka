@@ -129,9 +129,17 @@ class TestStatusCommand:
         state.add_release("62513:7", DUB_RELEASE)
 
         text = render.watch_status(state.watching(DAY), TZ)
-        assert "• Клеватесс 2, 7 серия (19.08 16:00)" in text
-        assert "🔊 озвучка · AniLibria · 39 сидов · 1.3 ГБ" in text
-        assert "• Тройной шторм, 9 серия (19.08 19:00)\n  пока ничего" in text
+        assert text.startswith("📦 Доступные торренты")
+        assert "• Клеватесс 2, 7 серия" in text
+        # В скобках ссылка на торрент, а не время выхода: оно уже есть
+        # в дневном списке, а тут спрашивают именно про раздачи.
+        assert f"🔊 озвучка · AniLibria · 39 сидов · 1.3 ГБ ({DUB_RELEASE.url})" in text
+        assert "• Тройной шторм, 9 серия\n  пока ничего" in text
+
+    def test_no_air_time_in_the_list(self, tmp_path):
+        state = State(tmp_path / "state.json")
+        state.watch(episode(), DAY)
+        assert "19.08" not in render.watch_status(state.watching(DAY), TZ)
 
     def test_status_when_empty(self):
         assert "ничего не отслеживаю" in render.watch_status([], TZ)
