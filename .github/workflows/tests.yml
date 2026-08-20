@@ -1,0 +1,28 @@
+name: tests
+
+# Только проверка кода. Бот отсюда ничего не публикует и в беседу не пишет:
+# он живёт долгим процессом на сервере, а не разовыми запусками Actions.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    # Правкам из форка секреты не нужны и не выдаются: тесты сетью
+    # не пользуются вовсе.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt pytest
+
+      - run: python -m pytest tests -q
