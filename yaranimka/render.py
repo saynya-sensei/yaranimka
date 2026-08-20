@@ -212,25 +212,15 @@ def _release_line(release: Release) -> str:
     return f"  {release.icon} {release.label} · {' · '.join(facts)} ({release.url})"
 
 
-def previous_release(item: Watched, history: Sequence[Watched]) -> Watched | None:
-    """Самая свежая серия того же тайтла, к которой раздача уже есть."""
-    earlier = [
-        other for other in history
-        if other.anime_id == item.anime_id and other.episode < item.episode and other.releases
-    ]
-    return max(earlier, key=lambda other: other.episode) if earlier else None
-
-
-def watch_status(watching: list[Watched], history: Sequence[Watched] = ()) -> str:
+def watch_status(watching: list[Watched]) -> str:
     """Ответ на команду: какие торренты доступны к сегодняшним сериям.
 
     Время выхода серии тут не печатается: оно уже есть в дневном списке,
     а здесь спрашивают про торренты, и в скобках полезнее ссылка на них.
 
-    Если к свежей серии раздачи ещё нет, показываем предыдущую: ждать
-    вечера ради ссылки не надо, а посмотреть с прошлой серии — можно
-    прямо сейчас. `history` для этого и нужна: там записи прошлых дней,
-    которые в сам список не попадают.
+    Если к свежей серии раздачи ещё нет — а чаще всего её и нет, серия
+    выходит вечером, — показываем предыдущую. Ждать ссылки до ночи не надо,
+    посмотреть с прошлой серии можно прямо сейчас.
     """
     if not watching:
         return "📦 Сейчас ничего не отслеживаю — свежих серий в списке нет."
@@ -241,12 +231,9 @@ def watch_status(watching: list[Watched], history: Sequence[Watched] = ()) -> st
 
         if item.releases:
             lines.extend(_release_line(release) for release in item.releases)
-            continue
-
-        earlier = previous_release(item, history)
-        if earlier:
-            lines.append(f"  свежей пока нет, последняя доступная — {earlier.episode} серия:")
-            lines.extend(_release_line(release) for release in earlier.releases)
+        elif item.previous:
+            lines.append(f"  свежей пока нет, последняя доступная — {item.previous_episode} серия:")
+            lines.extend(_release_line(release) for release in item.previous)
         else:
             lines.append("  пока ничего")
 

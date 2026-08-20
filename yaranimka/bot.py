@@ -153,7 +153,7 @@ class Bot:
                 # Показываем сегодняшний список, а записи прошлых дней идут
                 # только в подсказку «последняя доступная — N серия».
                 day = self._state.last_digest or self.now().date()
-                return render.watch_status(self._state.watching(day), self._state.watching())
+                return render.watch_status(self._state.watching(day))
             if command == "search":
                 if not argument:
                     return "Что искать? Например: аниме врата стейнса"
@@ -311,21 +311,27 @@ class Bot:
         now = self.now()
         cfg = self._cfg
         searching = timedelta(days=cfg.watch_days)
-        # Помним дольше, чем ищем: найденное нужно ещё и как подсказка
-        # «раздачи к свежей серии нет, вот предыдущая».
         keeping = timedelta(days=max(cfg.keep_days, cfg.watch_days))
 
-        pending = []
+        rows = []
         for item in self._state.watching():
-            age = now - item.aired
-            if age > keeping:
+            if now - item.aired > keeping:
                 self._state.unwatch(item.key)
-            elif age <= searching and now >= item.aired and not COMPLETE <= item.kinds:
-                # За срок поиска раздача либо появилась, либо её не будет,
-                # а сообщение того дня всё равно уже не поправить.
-                pending.append(item)
+            else:
+                rows.append(item)
 
-        if not pending:
+        # Свежую серию ищем только после эфира и только заданный срок: дальше
+        # раздача либо появилась, либо её не будет, а сообщение того дня всё
+        # равно уже не поправить.
+        pending = [
+            item for item in rows
+            if now >= item.aired and now - item.aired <= searching and not COMPLETE <= item.kinds
+        ]
+        # Предыдущую ищем и до эфира: серия выходит вечером, а посмотреть
+        # прошлую человек хочет уже сейчас.
+        backfill = [item for item in rows if not item.releases and not item.previous and item.episode > 1]
+
+        if not pending and not backfill:
             self._state.save()
             return 0
 
@@ -347,6 +353,19 @@ class Bot:
                 log.info("Нашлась раздача: %s, %s серия — %s",
                          item.title, item.episode, release.label)
             fresh += len(unseen)
+
+        for item in backfill:
+            if any(row.key == item.key for row in pending) and item.kinds:
+                continue  # свежую только что нашли, замена не нужна
+            earlier = torrents.find(
+                item.titles, item.episode - 1,
+                nyaa=nyaa, anilibria=anilibria, client=self._web,
+            )
+            if earlier:
+                self._state.set_previous(item.key, item.episode - 1, earlier)
+                log.info("Замена на предыдущую: %s, %s серия — %s",
+                         item.title, item.episode - 1,
+                         ", ".join(release.label for release in earlier))
 
         self._state.save()
         if fresh:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
@@ -31,6 +31,9 @@ class Watched:
     aired: datetime
     url: str
     releases: list[Release]
+    # Раздачи предыдущей серии: их показываем, пока к свежей ничего нет.
+    previous: list[Release] = field(default_factory=list)
+    previous_episode: int = 0
 
     @property
     def titles(self) -> list[str]:
@@ -59,6 +62,8 @@ class Watched:
             "aired": self.aired.isoformat(),
             "url": self.url,
             "releases": [release.as_dict() for release in self.releases],
+            "previous": [release.as_dict() for release in self.previous],
+            "previous_episode": self.previous_episode,
         }
 
 
@@ -143,6 +148,8 @@ class State:
                     aired=datetime.fromisoformat(raw["aired"]),
                     url=raw.get("url", ""),
                     releases=[Release.from_dict(item) for item in raw.get("releases", [])],
+                    previous=[Release.from_dict(item) for item in raw.get("previous", [])],
+                    previous_episode=int(raw.get("previous_episode") or 0),
                 ))
             except (KeyError, TypeError, ValueError):
                 log.warning("Выбрасываю непонятную запись слежения: %s", key)
@@ -170,6 +177,14 @@ class State:
         found = entry.setdefault("releases", [])
         if all(item.get("kind") != release.kind for item in found):
             found.append(release.as_dict())
+
+    def set_previous(self, key: str, episode: int, releases: list[Release]) -> None:
+        """Запоминает раздачи предыдущей серии — как замену, пока нет свежих."""
+        entry = self._data["watch"].get(key)
+        if entry is None:
+            return
+        entry["previous"] = [release.as_dict() for release in releases]
+        entry["previous_episode"] = episode
 
     def unwatch(self, key: str) -> None:
         self._data["watch"].pop(key, None)
